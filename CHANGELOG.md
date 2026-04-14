@@ -113,7 +113,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Registration management (initial, periodic, mobility updating)
   - Authentication procedures (5G-AKA, EAP-AKA')
   - Security mode control with ciphering/integrity algorithms
-  - PDU session establishment/management
+  - Complete PDU session establishment/management
+  - QoS flow management with multiple flows per session
+  - PDU session modification and release procedures
+  - Session-AMBR and QoS parameter handling
 - Enhanced configuration management system:
   - 11 configuration sections (general, network, UE, RRC, PDCP, RLC, MAC, NAS, performance, security, test)
   - Runtime configuration modification via CLI
@@ -145,13 +148,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced error handling and logging throughout all components
 - Optimized memory usage patterns with improved allocation strategies
 - Improved thread safety mechanisms with better synchronization
+- Enhanced NAS PDU session management with complete 5G session handling
 
 ### Security
 - Enhanced security context management across all protocol layers
 - Improved key derivation and storage mechanisms
 - Added integrity protection for all protocol layers
 - Implemented secure configuration handling with validation
-- Added input validation for all user interfaces and configuration inputs
 
 ## [0.1.0] - 2026-04-05
 

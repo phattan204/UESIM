@@ -797,6 +797,25 @@ uesim_error_t nas_initiate_pdu_session_establishment(nas_ue_context_t* nas_ctx,
         return UESIM_ERROR_INVALID_PARAM;
     }
     
+    // Validate PDU session ID range (1-15 for 5G)
+    if (pdu_session_id < 1 || pdu_session_id > 15) {
+        printf("NAS: Invalid PDU session ID %u, must be 1-15\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if session already exists and is active
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    if (nas_ctx->pdu_sessions[pdu_session_id].active) {
+        pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+        printf("NAS: PDU session %u already active\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
     // Create PDU session establishment request
     nas_pdu_session_establishment_request_t session_request = {0};
     session_request.pdu_session_id = pdu_session_id;
@@ -851,9 +870,27 @@ uesim_error_t nas_handle_pdu_session_establishment_request(nas_ue_context_t* nas
         return UESIM_ERROR_INVALID_PARAM;
     }
     
+    // Validate PDU session ID
+    if (request->pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        printf("NAS: Invalid PDU session ID %u\n", request->pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
     // Process PDU session establishment request
     printf("NAS: Handling PDU session establishment request, session ID=%u, type=%d\n", 
            request->pdu_session_id, request->pdu_session_type);
+    
+    // Update PDU session configuration
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[request->pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    nas_ctx->pdu_sessions[request->pdu_session_id].pdu_session_id = request->pdu_session_id;
+    nas_ctx->pdu_sessions[request->pdu_session_id].session_type = request->pdu_session_type;
+    nas_ctx->pdu_sessions[request->pdu_session_id].ssc_mode = request->ssc_mode;
+    nas_ctx->pdu_sessions[request->pdu_session_id].ptis = request->ptis;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[request->pdu_session_id].session_mutex);
     
     return UESIM_SUCCESS;
 }
@@ -869,14 +906,42 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Create PDU session establishment accept (simplified)
-    uint8_t accept_data[32] = {0};
-    accept_data[0] = pdu_session_id;
+    // Validate PDU session ID
+    if (pdu_session_id < 1 || pdu_session_id > 15) {
+        printf("NAS: Invalid PDU session ID %u for establishment accept\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Create PDU session establishment accept with complete session information
+    uint8_t accept_data[128] = {0};
+    size_t offset = 0;
+    
+    // Add session ID
+    accept_data[offset++] = pdu_session_id;
+    
+    // Add session type
+    accept_data[offset++] = nas_ctx->pdu_sessions[pdu_session_id].session_type;
+    
+    // Add PDU address (simplified)
+    uint32_t pdu_address = 0xC0A80101; // 192.168.1.1
+    memcpy(&accept_data[offset], &pdu_address, 4);
+    offset += 4;
+    
+    // Add QoS rules (simplified)
+    accept_data[offset++] = 0x01; // Default QFI
+    accept_data[offset++] = 0x08; // QoS rule length
+    accept_data[offset++] = 0x01; // QFI
+    accept_data[offset++] = 0x01; // ARP
+    accept_data[offset++] = 0x05; // QCI (5 - Video)
+    accept_data[offset++] = 0x00; // GBR UL
+    accept_data[offset++] = 0x64; // GBR UL (100 kbps)
+    accept_data[offset++] = 0x00; // GBR DL
+    accept_data[offset++] = 0xC8; // GBR DL (200 kbps)
     
     // Create NAS message
     nas_message_t* message = NULL;
     uesim_error_t result = nas_create_message(NAS_MSG_TYPE_PDU_SESSION_ESTABLISHMENT_ACCEPT, 
-                                             accept_data, sizeof(accept_data), &message);
+                                             accept_data, offset, &message);
     if (result != UESIM_SUCCESS) {
         return result;
     }
@@ -888,6 +953,35 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
         return result;
     }
     
+    // Update PDU session state and configuration
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        nas_destroy_message(message);
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Activate session
+    nas_ctx->pdu_sessions[pdu_session_id].active = true;
+    nas_ctx->pdu_sessions[pdu_session_id].pdu_address = pdu_address;
+    nas_ctx->pdu_sessions[pdu_session_id].default_qfi = 1;
+    nas_ctx->pdu_sessions[pdu_session_id].session_ambr_ul = 1000; // 1000 kbps
+    nas_ctx->pdu_sessions[pdu_session_id].session_ambr_dl = 2000; // 2000 kbps
+    nas_ctx->pdu_sessions[pdu_session_id].ul_teid = 0x12345678;
+    nas_ctx->pdu_sessions[pdu_session_id].dl_teid = 0x87654321;
+    nas_ctx->pdu_sessions[pdu_session_id].upf_ip = 0xC0A80102; // 192.168.1.2
+    
+    // Add default QoS flow
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].qfi = 1;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].arp = 1;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].qci = 5;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].gbr_ul = 100;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].gbr_dl = 200;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].mbr_ul = 1000;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].mbr_dl = 2000;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[0].active = true;
+    nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows = 1;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
     // Update PDU session state
     nas_update_5gsm_state(nas_ctx, pdu_session_id, NAS_5GSM_PDU_SESSION_ACTIVE);
     
@@ -898,12 +992,18 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
     }
     
     nas_ctx->stats.pdu_session_est_accepts++;
+    nas_ctx->num_active_sessions++;
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
     nas_destroy_message(message);
     
-    printf("NAS: Sent PDU session establishment accept, session ID=%u\n", pdu_session_id);
+    printf("NAS: Sent PDU session establishment accept, session ID=%u, IP=%u.%u.%u.%u\n", 
+           pdu_session_id,
+           (pdu_address >> 24) & 0xFF,
+           (pdu_address >> 16) & 0xFF,
+           (pdu_address >> 8) & 0xFF,
+           pdu_address & 0xFF);
     
     return UESIM_SUCCESS;
 }
@@ -925,6 +1025,424 @@ uesim_error_t nas_handle_pdu_session_establishment_reject(nas_ue_context_t* nas_
     
     // Update PDU session state
     nas_update_5gsm_state(nas_ctx, pdu_session_id, NAS_5GSM_PDU_SESSION_INACTIVE);
+    
+    return UESIM_SUCCESS;
+}
+
+// Enhanced PDU Session Management Functions
+uesim_error_t nas_initiate_pdu_session_modification(nas_ue_context_t* nas_ctx, 
+                                                   uint8_t pdu_session_id) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if session exists and is active
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
+        pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+        printf("NAS: PDU session %u not active for modification\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    // Create PDU session modification request
+    uint8_t mod_request_data[64] = {0};
+    mod_request_data[0] = pdu_session_id;
+    mod_request_data[1] = 0x01; // Modification type
+    
+    // Create NAS message
+    nas_message_t* message = NULL;
+    uesim_error_t result = nas_create_message(NAS_MSG_TYPE_PDU_SESSION_MODIFICATION_REQUEST, 
+                                             mod_request_data, 2, &message);
+    if (result != UESIM_SUCCESS) {
+        return result;
+    }
+    
+    // Send message
+    result = nas_send_message(nas_ctx, message);
+    if (result != UESIM_SUCCESS) {
+        nas_destroy_message(message);
+        return result;
+    }
+    
+    // Update PDU session state
+    nas_update_5gsm_state(nas_ctx, pdu_session_id, NAS_5GSM_PDU_SESSION_MODIFICATION_PENDING);
+    
+    nas_destroy_message(message);
+    
+    printf("NAS: Initiated PDU session modification, session ID=%u\n", pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_initiate_pdu_session_release(nas_ue_context_t* nas_ctx, 
+                                              uint8_t pdu_session_id) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if session exists and is active
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
+        pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+        printf("NAS: PDU session %u not active for release\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    // Create PDU session release request
+    uint8_t release_request_data[32] = {0};
+    release_request_data[0] = pdu_session_id;
+    release_request_data[1] = 0x00; // Cause
+    
+    // Create NAS message
+    nas_message_t* message = NULL;
+    uesim_error_t result = nas_create_message(NAS_MSG_TYPE_PDU_SESSION_RELEASE_REQUEST, 
+                                             release_request_data, 2, &message);
+    if (result != UESIM_SUCCESS) {
+        return result;
+    }
+    
+    // Send message
+    result = nas_send_message(nas_ctx, message);
+    if (result != UESIM_SUCCESS) {
+        nas_destroy_message(message);
+        return result;
+    }
+    
+    // Update PDU session state
+    nas_update_5gsm_state(nas_ctx, pdu_session_id, NAS_5GSM_PDU_SESSION_RELEASED_PENDING);
+    
+    nas_destroy_message(message);
+    
+    printf("NAS: Initiated PDU session release, session ID=%u\n", pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_handle_pdu_session_modification_command(nas_ue_context_t* nas_ctx, 
+                                                         uint8_t pdu_session_id,
+                                                         const uint8_t* command_data, 
+                                                         size_t data_length) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS || 
+        command_data == NULL || data_length == 0) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Process PDU session modification command
+    printf("NAS: Handling PDU session modification command, session ID=%u\n", pdu_session_id);
+    
+    // Update PDU session configuration based on command
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Parse modification command and update session parameters
+    if (data_length >= 4) {
+        // Update AMBR values
+        memcpy(&nas_ctx->pdu_sessions[pdu_session_id].session_ambr_ul, &command_data[0], 2);
+        memcpy(&nas_ctx->pdu_sessions[pdu_session_id].session_ambr_dl, &command_data[2], 2);
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    // Send modification complete
+    uint8_t complete_data[16] = {0};
+    complete_data[0] = pdu_session_id;
+    
+    nas_message_t* message = NULL;
+    uesim_error_t result = nas_create_message(NAS_MSG_TYPE_PDU_SESSION_MODIFICATION_COMPLETE, 
+                                             complete_data, 1, &message);
+    if (result != UESIM_SUCCESS) {
+        return result;
+    }
+    
+    result = nas_send_message(nas_ctx, message);
+    if (result != UESIM_SUCCESS) {
+        nas_destroy_message(message);
+        return result;
+    }
+    
+    // Update PDU session state back to active
+    nas_update_5gsm_state(nas_ctx, pdu_session_id, NAS_5GSM_PDU_SESSION_ACTIVE);
+    
+    nas_destroy_message(message);
+    
+    printf("NAS: Completed PDU session modification, session ID=%u\n", pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_handle_pdu_session_release_command(nas_ue_context_t* nas_ctx, 
+                                                    uint8_t pdu_session_id,
+                                                    const uint8_t* command_data, 
+                                                    size_t data_length) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Process PDU session release command
+    printf("NAS: Handling PDU session release command, session ID=%u\n", pdu_session_id);
+    
+    // Deactivate PDU session
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    nas_ctx->pdu_sessions[pdu_session_id].active = false;
+    nas_ctx->pdu_sessions[pdu_session_id].state = NAS_5GSM_PDU_SESSION_INACTIVE;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    // Update global session count
+    if (pthread_mutex_lock(&nas_ctx->nas_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    if (nas_ctx->num_active_sessions > 0) {
+        nas_ctx->num_active_sessions--;
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->nas_mutex);
+    
+    // Send release complete
+    uint8_t complete_data[16] = {0};
+    complete_data[0] = pdu_session_id;
+    
+    nas_message_t* message = NULL;
+    uesim_error_t result = nas_create_message(NAS_MSG_TYPE_PDU_SESSION_RELEASE_COMPLETE, 
+                                             complete_data, 1, &message);
+    if (result != UESIM_SUCCESS) {
+        return result;
+    }
+    
+    result = nas_send_message(nas_ctx, message);
+    if (result != UESIM_SUCCESS) {
+        nas_destroy_message(message);
+        return result;
+    }
+    
+    nas_destroy_message(message);
+    
+    printf("NAS: Completed PDU session release, session ID=%u\n", pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+// QoS Flow Management Functions
+uesim_error_t nas_add_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                              const nas_qos_flow_t* qos_flow) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS || qos_flow == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Add QoS flow to PDU session
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Check if session is active
+    if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
+        pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+        printf("NAS: Cannot add QoS flow to inactive PDU session %u\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if we have space for more QoS flows
+    if (nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows >= 8) {
+        pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+        printf("NAS: Maximum QoS flows reached for PDU session %u\n", pdu_session_id);
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Add QoS flow
+    int flow_index = nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[flow_index] = *qos_flow;
+    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[flow_index].active = true;
+    nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows++;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    printf("NAS: Added QoS flow QFI=%u to PDU session %u\n", 
+           qos_flow->qfi, pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_remove_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                                 uint8_t qfi) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Remove QoS flow from PDU session
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Find and remove QoS flow
+    for (int i = 0; i < nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows; i++) {
+        if (nas_ctx->pdu_sessions[pdu_session_id].qos_flows[i].qfi == qfi) {
+            // Shift remaining flows
+            for (int j = i; j < nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows - 1; j++) {
+                nas_ctx->pdu_sessions[pdu_session_id].qos_flows[j] = 
+                    nas_ctx->pdu_sessions[pdu_session_id].qos_flows[j + 1];
+            }
+            nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows--;
+            break;
+        }
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    printf("NAS: Removed QoS flow QFI=%u from PDU session %u\n", qfi, pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_modify_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                                 const nas_qos_flow_t* qos_flow) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS || qos_flow == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Check if context is active
+    if (!nas_ctx->active) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Modify QoS flow in PDU session
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Find and modify QoS flow
+    for (int i = 0; i < nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows; i++) {
+        if (nas_ctx->pdu_sessions[pdu_session_id].qos_flows[i].qfi == qos_flow->qfi) {
+            nas_ctx->pdu_sessions[pdu_session_id].qos_flows[i] = *qos_flow;
+            nas_ctx->pdu_sessions[pdu_session_id].qos_flows[i].active = true;
+            break;
+        }
+    }
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    printf("NAS: Modified QoS flow QFI=%u in PDU session %u\n", qos_flow->qfi, pdu_session_id);
+    
+    return UESIM_SUCCESS;
+}
+
+// PDU Session Utility Functions
+bool nas_is_pdu_session_active(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return false;
+    }
+    
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return false;
+    }
+    
+    bool active = nas_ctx->pdu_sessions[pdu_session_id].active;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    return active;
+}
+
+uesim_error_t nas_get_pdu_session_info(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id,
+                                      nas_pdu_session_t* session_info) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS || session_info == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    *session_info = nas_ctx->pdu_sessions[pdu_session_id];
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_get_all_active_pdu_sessions(nas_ue_context_t* nas_ctx,
+                                             uint8_t* session_ids,
+                                             uint8_t* num_sessions) {
+    if (nas_ctx == NULL || session_ids == NULL || num_sessions == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    *num_sessions = 0;
+    
+    for (int i = 0; i < NAS_MAX_PDU_SESSIONS; i++) {
+        if (nas_is_pdu_session_active(nas_ctx, i)) {
+            session_ids[*num_sessions] = i;
+            (*num_sessions)++;
+            if (*num_sessions >= NAS_MAX_PDU_SESSIONS) {
+                break;
+            }
+        }
+    }
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t nas_update_pdu_session_ambr(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id,
+                                         uint16_t ul_ambr, uint16_t dl_ambr) {
+    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    nas_ctx->pdu_sessions[pdu_session_id].session_ambr_ul = ul_ambr;
+    nas_ctx->pdu_sessions[pdu_session_id].session_ambr_dl = dl_ambr;
+    
+    pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
+    
+    printf("NAS: Updated PDU session %u AMBR: UL=%u kbps, DL=%u kbps\n", 
+           pdu_session_id, ul_ambr, dl_ambr);
     
     return UESIM_SUCCESS;
 }

@@ -38,14 +38,20 @@ This application simulates 5G User Equipment behavior for testing and developmen
 
 ## Build Requirements
 
+### Linux (RHEL 8.5)
 - RHEL 8.5 or compatible Linux distribution
 - GCC 8.5 or higher
-- CMake 3.18+
 - libsctp-devel
 - libconfig-devel
 - Development tools (make, gcc, etc.)
 
+### Windows
+- MSYS2 or MinGW with GCC
+- Make utility
+
 ## Build Instructions
+
+### Linux (RHEL 8.5)
 
 ```bash
 # Clone the repository
@@ -64,6 +70,28 @@ make COMPRESS=yes
 # Clean build
 make clean
 ```
+
+### Windows
+
+```cmd
+# Clone the repository
+git clone <repository-url>
+cd uesim
+
+# Build using the batch script (recommended)
+build.bat
+
+# Or build directly with make
+make
+
+# Build with debug symbols
+make BUILD_TYPE=debug
+
+# Clean build
+make clean
+```
+
+**Note**: On Windows, you need to have MSYS2 or MinGW installed with GCC and make utilities. The build.bat script will guide you through the build process and check for required tools.
 
 ## Usage
 

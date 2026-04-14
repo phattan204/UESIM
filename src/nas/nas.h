@@ -192,6 +192,18 @@ typedef struct {
     char msisdn[16];               // Mobile Station ISDN Number
 } nas_ue_identity_t;
 
+// NAS QoS Flow
+typedef struct {
+    uint8_t qfi;                   // QoS Flow Identifier (1-64)
+    uint8_t arp;                   // Allocation and Retention Priority (1-15)
+    uint8_t qci;                   // QoS Class Identifier
+    uint16_t gbr_ul;              // Guaranteed Bit Rate Uplink (kbps)
+    uint16_t gbr_dl;              // Guaranteed Bit Rate Downlink (kbps)
+    uint16_t mbr_ul;              // Maximum Bit Rate Uplink (kbps)
+    uint16_t mbr_dl;              // Maximum Bit Rate Downlink (kbps)
+    bool active;                  // QoS flow active status
+} nas_qos_flow_t;
+
 // NAS PDU Session
 typedef struct {
     uint8_t pdu_session_id;        // PDU Session ID (1-15)
@@ -199,10 +211,15 @@ typedef struct {
     nas_ssc_mode_t ssc_mode;       // SSC mode
     nas_5gsm_state_t state;        // Session state
     uint32_t pdu_address;          // PDU address (IPv4)
-    uint8_t qfi;                   // QoS Flow Identifier
-    uint8_t arp;                   // Allocation and Retention Priority
+    uint8_t default_qfi;           // Default QoS Flow Identifier
+    uint8_t num_qos_flows;         // Number of QoS flows
+    nas_qos_flow_t qos_flows[8];   // QoS flows (max 8 per session)
     uint16_t session_ambr_ul;      // Session AMBR Uplink (kbps)
     uint16_t session_ambr_dl;      // Session AMBR Downlink (kbps)
+    uint8_t ptis;                  // Procedure Transaction ID
+    uint32_t ul_teid;              // Uplink TEID
+    uint32_t dl_teid;              // Downlink TEID
+    uint32_t upf_ip;               // UPF IP address
     bool active;                   // Session active status
     pthread_mutex_t session_mutex; // Session protection
 } nas_pdu_session_t;
