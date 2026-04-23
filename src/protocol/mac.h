@@ -103,7 +103,7 @@ typedef struct {
 } mac_lch_info_t;
 
 // MAC Transport Block
-typedef struct {
+typedef struct mac_tb_t {
     uint8_t* data;              // TB data
     size_t data_length;         // TB data length
     uint16_t tb_id;             // Transport block ID
@@ -116,6 +116,7 @@ typedef struct {
     uint32_t creation_time;     // Creation time
     bool is_retransmission;     // Is this a retransmission?
     mac_direction_t direction;  // Direction (UL/DL)
+    struct mac_tb_t* next;     // Linked list next pointer
 } mac_tb_t;
 
 // MAC Control Element

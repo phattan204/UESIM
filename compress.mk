@@ -19,7 +19,11 @@ FLAG_DIR = .build_flags
 
 # Create flag files based on configuration
 $(FLAG_DIR):
+ifeq ($(PLATFORM),windows)
+	@mkdir $@ 2>nul || echo.
+else
 	@mkdir -p $@
+endif
 
 # Debug flag
 $(FLAG_DIR)/debug.flag: | $(FLAG_DIR)
@@ -31,14 +35,15 @@ $(FLAG_DIR)/optimize.flag: | $(FLAG_DIR)
 
 # Feature flags
 $(FLAG_DIR)/feature_%.flag: | $(FLAG_DIR)
-	@touch $@
-
-# Conditional compilation based on flags
--include $(wildcard $(FLAG_DIR)/*.flag)
-
-# Flag-based target selection
-ifeq ($(wildcard $(FLAG_DIR)/debug.flag),)
-    BUILD_CFLAGS = $(RELEASE_FLAGS)
+ifeq ($(PLATFORM),windows)
+	@type nul > $@
 else
+	@touch $@
+endif
+
+# Flag-based target selection (check file existence)
+ifneq ($(wildcard $(FLAG_DIR)/debug.flag),)
     BUILD_CFLAGS = $(DEBUG_FLAGS)
+else
+    BUILD_CFLAGS = $(RELEASE_FLAGS)
 endif

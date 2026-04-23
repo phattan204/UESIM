@@ -18,7 +18,7 @@ static thread_pool_t* g_thread_pool = NULL;
 static ue_context_t* g_ue_instances[MAX_UE_INSTANCES] = {NULL};
 static atomic_int g_active_ue_count = 0;
 static bool g_running = false;
-static uesim_config_t g_config = {0};
+uesim_config_t g_config = {0};
 
 // CLI options
 static struct option long_options[] = {
@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
     // Main loop
     g_running = true;
     while (g_running) {
-        sleep(1);
+        uesim_sleep(1);
         // Check for signals or commands
     }
     

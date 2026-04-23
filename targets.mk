@@ -4,7 +4,7 @@ TARGET_DEBUG = $(TARGET)-debug
 TARGET_PROFILE = $(TARGET)-profile
 
 # Source directories
-SRCDIRS = src src/core src/protocol src/transport src/cli src/utils
+SRCDIRS = src src/core src/protocol src/transport src/cli src/config src/nas src/benchmark src/utils
 SOURCES = $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
 OBJECTS = $(SOURCES:.c=.o)
 DEPS = $(SOURCES:.c=.d)

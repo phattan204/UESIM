@@ -1855,14 +1855,6 @@ bool nas_is_ue_registered(nas_ue_context_t* nas_ctx) {
     return (nas_ctx->mm_state == NAS_5GMM_REGISTERED);
 }
 
-bool nas_is_pdu_session_active(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id) {
-    if (nas_ctx == NULL || pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
-        return false;
-    }
-    
-    return nas_ctx->pdu_sessions[pdu_session_id].active;
-}
-
 uesim_error_t nas_get_statistics(nas_ue_context_t* nas_ctx, nas_stats_t* stats) {
     if (nas_ctx == NULL || stats == NULL) {
         return UESIM_ERROR_INVALID_PARAM;

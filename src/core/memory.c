@@ -75,6 +75,10 @@ void* uesim_malloc(size_t size) {
     return ptr;
 }
 
+void* uesim_realloc(void* ptr, size_t size) {
+    return realloc(ptr, size);
+}
+
 void* uesim_calloc(size_t nmemb, size_t size) {
     size_t total_size = nmemb * size;
     void* ptr = uesim_malloc(total_size);

@@ -10,16 +10,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <pthread.h>
+#endif
 
 // External configuration reference
 extern uesim_config_t g_config;
 
 // Global variables
+#ifdef _WIN32
+static volatile LONG g_cli_running = 0;
+#else
 static atomic_bool g_cli_running = false;
-static pthread_t g_cli_thread = 0;
-static pthread_mutex_t g_cli_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+static pthread_t g_cli_thread;
 
 // Command string mappings
 static const char* g_command_strings[] = {

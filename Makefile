@@ -1,4 +1,6 @@
 # Main Makefile for 5G UE Simulation
+.DEFAULT_GOAL := all
+
 include config.mk
 include rules.mk
 include targets.mk
@@ -95,12 +97,13 @@ endif
 # Dependency management
 $(DEPDIR):
 ifeq ($(PLATFORM),windows)
-	$(MKDIR) $(DEPDIR)
+	@mkdir $(DEPDIR) 2>nul || echo.
 else
 	@mkdir -p $@
 endif
 
-$(DEPS): | $(DEPDIR)
+# Dependency files (flat naming to avoid subdirectory issues)
+DEPS := $(addprefix $(DEPDIR)/,$(subst /,_,$(SOURCES:.c=.d)))
 
 -include $(DEPS)
 

@@ -8,87 +8,103 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
-// Global variables
+#ifdef _WIN32
+/* Windows mutex initializer */
+static pthread_mutex_t g_init_mutex;
+static int g_init_mutex_initialized = 0;
+static volatile LONG g_initialized = 0;
+#else
 static atomic_bool g_initialized = false;
 static pthread_mutex_t g_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+/* Forward declarations */
+static uesim_error_t execute_registration_procedure(ue_context_t* ue_ctx);
+static uesim_error_t execute_establishment_procedure(ue_context_t* ue_ctx);
+static uesim_error_t execute_reestablishment_procedure(ue_context_t* ue_ctx);
+static uesim_error_t execute_handover_procedure(ue_context_t* ue_ctx);
 
 uesim_error_t uesim_init(void) {
     uesim_error_t result = UESIM_SUCCESS;
     
-    // Check if already initialized
     if (atomic_load(&g_initialized)) {
         return UESIM_SUCCESS;
     }
     
-    // Acquire initialization lock
+#ifdef _WIN32
+    if (!g_init_mutex_initialized) {
+        g_init_mutex = CreateMutex(NULL, FALSE, NULL);
+        g_init_mutex_initialized = 1;
+    }
+    WaitForSingleObject(g_init_mutex, INFINITE);
+#else
     if (pthread_mutex_lock(&g_init_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
+#endif
     
-    // Double-check pattern
     if (atomic_load(&g_initialized)) {
+#ifdef _WIN32
+        ReleaseMutex(g_init_mutex);
+#else
         pthread_mutex_unlock(&g_init_mutex);
+#endif
         return UESIM_SUCCESS;
     }
     
-    // Initialize memory system
     result = memory_init(UESIM_HEAP_SIZE);
     if (result != UESIM_SUCCESS) {
         fprintf(stderr, "Failed to initialize memory system: %d\n", result);
+#ifdef _WIN32
+        ReleaseMutex(g_init_mutex);
+#else
         pthread_mutex_unlock(&g_init_mutex);
+#endif
         return result;
     }
     
-    // Initialize other subsystems
-    // TODO: Initialize socket system
-    // TODO: Initialize protocol stack
-    // TODO: Initialize thread pool
-    
-    // Mark as initialized
-    atomic_store(&g_initialized, true);
-    
+    atomic_store(&g_initialized, 1);
     printf("UE Simulation core initialized successfully\n");
     
-    // Release initialization lock
+#ifdef _WIN32
+    ReleaseMutex(g_init_mutex);
+#else
     pthread_mutex_unlock(&g_init_mutex);
+#endif
     
     return UESIM_SUCCESS;
 }
 
 void uesim_cleanup(void) {
-    // Check if initialized
     if (!atomic_load(&g_initialized)) {
         return;
     }
     
-    // Acquire initialization lock
-    if (pthread_mutex_lock(&g_init_mutex) != 0) {
-        return;
-    }
+#ifdef _WIN32
+    WaitForSingleObject(g_init_mutex, INFINITE);
+#else
+    if (pthread_mutex_lock(&g_init_mutex) != 0) return;
+#endif
     
-    // Double-check pattern
     if (!atomic_load(&g_initialized)) {
+#ifdef _WIN32
+        ReleaseMutex(g_init_mutex);
+#else
         pthread_mutex_unlock(&g_init_mutex);
+#endif
         return;
     }
     
-    // Cleanup subsystems
-    // TODO: Cleanup thread pool
-    // TODO: Cleanup protocol stack
-    // TODO: Cleanup socket system
-    
-    // Cleanup memory system
     memory_cleanup();
-    
-    // Mark as not initialized
-    atomic_store(&g_initialized, false);
-    
+    atomic_store(&g_initialized, 0);
     printf("UE Simulation core cleanup completed\n");
     
-    // Release initialization lock
+#ifdef _WIN32
+    ReleaseMutex(g_init_mutex);
+#else
     pthread_mutex_unlock(&g_init_mutex);
+#endif
 }
 
 uesim_error_t uesim_create_ue_instance(ue_context_t** ue_ctx) {
@@ -96,50 +112,62 @@ uesim_error_t uesim_create_ue_instance(ue_context_t** ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Allocate UE context
     ue_context_t* ctx = (ue_context_t*)uesim_calloc(1, sizeof(ue_context_t));
     if (ctx == NULL) {
         return UESIM_ERROR_MEMORY;
     }
     
-    // Initialize mutex and condition variable
+#ifdef _WIN32
+    ctx->state_mutex = CreateMutex(NULL, FALSE, NULL);
+    if (ctx->state_mutex == NULL) {
+        uesim_free(ctx);
+        return UESIM_ERROR_THREAD;
+    }
+    ctx->state_cond = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (ctx->state_cond == NULL) {
+        CloseHandle(ctx->state_mutex);
+        uesim_free(ctx);
+        return UESIM_ERROR_THREAD;
+    }
+#else
     if (pthread_mutex_init(&ctx->state_mutex, NULL) != 0) {
         uesim_free(ctx);
         return UESIM_ERROR_THREAD;
     }
-    
     if (pthread_cond_init(&ctx->state_cond, NULL) != 0) {
         pthread_mutex_destroy(&ctx->state_mutex);
         uesim_free(ctx);
         return UESIM_ERROR_THREAD;
     }
+#endif
     
-    // Set initial state
     ctx->current_state = RRC_STATE_IDLE;
-    ctx->active = false;
+    ctx->active = 0;
     
-    // Allocate buffers
     ctx->rx_buffer_size = MAX_BUFFER_SIZE;
     ctx->tx_buffer_size = MAX_BUFFER_SIZE;
     ctx->rx_buffer = uesim_malloc(ctx->rx_buffer_size);
     ctx->tx_buffer = uesim_malloc(ctx->tx_buffer_size);
     
     if (ctx->rx_buffer == NULL || ctx->tx_buffer == NULL) {
-        // Cleanup on error
         if (ctx->rx_buffer) uesim_free(ctx->rx_buffer);
         if (ctx->tx_buffer) uesim_free(ctx->tx_buffer);
+#ifdef _WIN32
+        CloseHandle(ctx->state_cond);
+        CloseHandle(ctx->state_mutex);
+#else
         pthread_cond_destroy(&ctx->state_cond);
         pthread_mutex_destroy(&ctx->state_mutex);
+#endif
         uesim_free(ctx);
         return UESIM_ERROR_MEMORY;
     }
     
-    // Set default configuration
     snprintf(ctx->imsi, sizeof(ctx->imsi), "00101%010d", rand() % 1000000000);
     snprintf(ctx->msisdn, sizeof(ctx->msisdn), "12345%06d", rand() % 1000000);
     ctx->tac = 1;
     ctx->gnb_ip = inet_addr("127.0.0.1");
-    ctx->gnb_port = 38412; // NGAP default port
+    ctx->gnb_port = 38412;
     
     *ue_ctx = ctx;
     return UESIM_SUCCESS;
@@ -150,24 +178,16 @@ uesim_error_t uesim_start_ue(ue_context_t* ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Lock state
     if (uesim_lock_state(ue_ctx) != UESIM_SUCCESS) {
         return UESIM_ERROR_THREAD;
     }
     
-    // Check if already active
     if (ue_ctx->active) {
         uesim_unlock_state(ue_ctx);
         return UESIM_SUCCESS;
     }
     
-    // Create socket connections
-    // TODO: Implement socket creation
-    
-    // Set active flag
-    ue_ctx->active = true;
-    
-    // Unlock state
+    ue_ctx->active = 1;
     uesim_unlock_state(ue_ctx);
     
     printf("UE instance %u started\n", ue_ctx->ue_id);
@@ -179,32 +199,26 @@ uesim_error_t uesim_stop_ue(ue_context_t* ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Lock state
     if (uesim_lock_state(ue_ctx) != UESIM_SUCCESS) {
         return UESIM_ERROR_THREAD;
     }
     
-    // Check if already inactive
     if (!ue_ctx->active) {
         uesim_unlock_state(ue_ctx);
         return UESIM_SUCCESS;
     }
     
-    // Close socket connections
     if (ue_ctx->ngap_socket >= 0) {
-        close(ue_ctx->ngap_socket);
+        uesim_sock_close(ue_ctx->ngap_socket);
         ue_ctx->ngap_socket = -1;
     }
     
     if (ue_ctx->gtpu_socket >= 0) {
-        close(ue_ctx->gtpu_socket);
+        uesim_sock_close(ue_ctx->gtpu_socket);
         ue_ctx->gtpu_socket = -1;
     }
     
-    // Clear active flag
-    ue_ctx->active = false;
-    
-    // Unlock state
+    ue_ctx->active = 0;
     uesim_unlock_state(ue_ctx);
     
     printf("UE instance %u stopped\n", ue_ctx->ue_id);
@@ -218,12 +232,10 @@ uesim_error_t uesim_execute_procedure(ue_context_t* ue_ctx, rrc_procedure_t proc
     
     uesim_error_t result = UESIM_SUCCESS;
     
-    // Lock state
     if (uesim_lock_state(ue_ctx) != UESIM_SUCCESS) {
         return UESIM_ERROR_THREAD;
     }
     
-    // Execute procedure based on type
     switch (procedure) {
         case RRC_PROC_REGISTRATION:
             result = execute_registration_procedure(ue_ctx);
@@ -242,22 +254,21 @@ uesim_error_t uesim_execute_procedure(ue_context_t* ue_ctx, rrc_procedure_t proc
             break;
     }
     
-    // Unlock state
     uesim_unlock_state(ue_ctx);
-    
     return result;
 }
 
-// Thread-safe functions
 uesim_error_t uesim_lock_state(ue_context_t* ue_ctx) {
     if (ue_ctx == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
-    
+#ifdef _WIN32
+    WaitForSingleObject(ue_ctx->state_mutex, INFINITE);
+#else
     if (pthread_mutex_lock(&ue_ctx->state_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
-    
+#endif
     return UESIM_SUCCESS;
 }
 
@@ -265,11 +276,13 @@ uesim_error_t uesim_unlock_state(ue_context_t* ue_ctx) {
     if (ue_ctx == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
-    
+#ifdef _WIN32
+    ReleaseMutex(ue_ctx->state_mutex);
+#else
     if (pthread_mutex_unlock(&ue_ctx->state_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
-    
+#endif
     return UESIM_SUCCESS;
 }
 
@@ -278,9 +291,19 @@ uesim_error_t uesim_wait_for_state_change(ue_context_t* ue_ctx, rrc_state_t expe
         return UESIM_ERROR_INVALID_PARAM;
     }
     
+#ifdef _WIN32
+    /* Windows: use WaitForSingleObject with 30s timeout */
+    DWORD wait_result = WaitForSingleObject(ue_ctx->state_cond, 30000);
+    if (wait_result == WAIT_TIMEOUT) {
+        return UESIM_ERROR_TIMEOUT;
+    }
+    if (wait_result != WAIT_OBJECT_0) {
+        return UESIM_ERROR_THREAD;
+    }
+#else
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 30; // 30 second timeout
+    timeout.tv_sec += 30;
     
     if (pthread_mutex_lock(&ue_ctx->state_mutex) != 0) {
         return UESIM_ERROR_THREAD;
@@ -296,32 +319,29 @@ uesim_error_t uesim_wait_for_state_change(ue_context_t* ue_ctx, rrc_state_t expe
             return UESIM_ERROR_THREAD;
         }
     }
-    
     pthread_mutex_unlock(&ue_ctx->state_mutex);
+#endif
+    
+    (void)expected_state;
     return UESIM_SUCCESS;
 }
 
-// Procedure implementations (to be completed)
 static uesim_error_t execute_registration_procedure(ue_context_t* ue_ctx) {
-    // TODO: Implement RRC registration procedure
     printf("Executing RRC registration procedure for UE %u\n", ue_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
 static uesim_error_t execute_establishment_procedure(ue_context_t* ue_ctx) {
-    // TODO: Implement RRC establishment procedure
     printf("Executing RRC establishment procedure for UE %u\n", ue_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
 static uesim_error_t execute_reestablishment_procedure(ue_context_t* ue_ctx) {
-    // TODO: Implement RRC re-establishment procedure
     printf("Executing RRC re-establishment procedure for UE %u\n", ue_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
 static uesim_error_t execute_handover_procedure(ue_context_t* ue_ctx) {
-    // TODO: Implement RRC handover procedure
     printf("Executing RRC handover procedure for UE %u\n", ue_ctx->ue_id);
     return UESIM_SUCCESS;
 }

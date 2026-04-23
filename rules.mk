@@ -1,14 +1,27 @@
 # Dependency tracking
 DEPDIR = .deps
-DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$*.Td
 
-# Compilation pattern rules
+# Use flat dep file names (replace / with _ to avoid subdirectory issues)
+DEP_BASE = $(subst /,_,$*)
+DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$(DEP_BASE).Td
+
+# Compilation rule
 COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(CPPFLAGS) -c
-POSTCOMPILE = @mv -f $(DEPDIR)/$*.Td $(DEPDIR)/$*.d && touch $@
 
-%.o : %.c
-%.o : %.c $(DEPDIR)/%.d
-	@$(MKDIR_P) $(@D) $(DEPDIR)
+# Platform-specific post-compile
+ifeq ($(PLATFORM),windows)
+POSTCOMPILE = @move /Y $(DEPDIR)\$(DEP_BASE).Td $(DEPDIR)\$(DEP_BASE).d >nul 2>&1
+else
+POSTCOMPILE = @mv -f $(DEPDIR)/$(DEP_BASE).Td $(DEPDIR)/$(DEP_BASE).d && touch $@
+endif
+
+# Simple pattern rule: .c -> .o with auto-dependency generation
+%.o: %.c | $(DEPDIR)
+ifeq ($(PLATFORM),windows)
+	@-mkdir $(@D) 2>nul
+else
+	@mkdir -p $(@D)
+endif
 	$(COMPILE.c) $(OUTPUT_OPTION) $<
 	$(POSTCOMPILE)
 

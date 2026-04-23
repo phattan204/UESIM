@@ -270,6 +270,8 @@ void aes_inv_shift_rows(uint8_t state[4][4]) {
     state[3][3] = temp;
 }
 
+static uint8_t multiply(uint8_t x, uint8_t y);
+
 void aes_inv_mix_columns(uint8_t state[4][4]) {
     for (int i = 0; i < 4; i++) {
         uint8_t s0 = state[0][i];

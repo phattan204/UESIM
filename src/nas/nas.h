@@ -295,6 +295,22 @@ typedef struct {
     bool ciphered;                 // Ciphering status
 } nas_message_t;
 
+// NAS Statistics
+typedef struct {
+    uint64_t registration_requests;  // Registration requests sent
+    uint64_t registration_accepts;   // Registration accepts received
+    uint64_t authentication_requests; // Authentication requests received
+    uint64_t authentication_responses; // Authentication responses sent
+    uint64_t security_mode_commands;  // Security mode commands received
+    uint64_t security_mode_completes; // Security mode completes sent
+    uint64_t pdu_session_est_requests; // PDU session establishment requests
+    uint64_t pdu_session_est_accepts;  // PDU session establishment accepts
+    uint64_t messages_sent;           // Total messages sent
+    uint64_t messages_received;       // Total messages received
+    uint64_t authentication_success;  // Successful authentications
+    uint64_t authentication_failures; // Failed authentications
+} nas_stats_t;
+
 // NAS UE Context
 typedef struct {
     uint32_t ue_id;                // UE identifier
@@ -314,23 +330,8 @@ typedef struct {
     bool active;                   // UE context active
     pthread_mutex_t nas_mutex;     // NAS context protection
     pthread_cond_t nas_cond;       // NAS context signaling
+    nas_stats_t stats;             /* NAS statistics */
 } nas_ue_context_t;
-
-// NAS Statistics
-typedef struct {
-    uint64_t registration_requests;  // Registration requests sent
-    uint64_t registration_accepts;   // Registration accepts received
-    uint64_t authentication_requests; // Authentication requests received
-    uint64_t authentication_responses; // Authentication responses sent
-    uint64_t security_mode_commands;  // Security mode commands received
-    uint64_t security_mode_completes; // Security mode completes sent
-    uint64_t pdu_session_est_requests; // PDU session establishment requests
-    uint64_t pdu_session_est_accepts;  // PDU session establishment accepts
-    uint64_t messages_sent;           // Total messages sent
-    uint64_t messages_received;       // Total messages received
-    uint64_t authentication_success;  // Successful authentications
-    uint64_t authentication_failures; // Failed authentications
-} nas_stats_t;
 
 // Function prototypes
 uesim_error_t nas_init(ue_context_t* ue_ctx);

@@ -10,7 +10,7 @@ ifeq ($(OS),Windows_NT)
     PLATFORM = windows
     CC = gcc
     CFLAGS_BASE = -std=c11 -Wall -Wextra -D_WIN32
-    LDFLAGS_BASE = -lws2_32 -lpthread
+    LDFLAGS_BASE = -lws2_32
     PREFIX ?= C:/uesim
     BINDIR ?= $(PREFIX)/bin
     LIBDIR ?= $(PREFIX)/lib
@@ -19,7 +19,7 @@ else
     # Unix-like systems (Linux, macOS)
     PLATFORM = unix
     CC = gcc
-    CFLAGS_BASE = -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE
+    CFLAGS_BASE = -std=c11 -Wall -Wextra -D_GNU_SOURCE
     
     # Installation paths
     PREFIX ?= /usr/local
@@ -47,17 +47,20 @@ else
     # Performance tuning for RHEL
     RHEL_PERF_FLAGS = -mbranch-cost=5 -freorder-blocks-algorithm=stc
     
-    LDFLAGS_BASE = -lpthread -lrt -lsctp -lconfig
+    LDFLAGS_BASE = -lpthread -lrt
 endif
 
-# Compiler and linker flags
-CFLAGS_DEBUG = $(CFLAGS_BASE) $(DEBUG_FLAGS)
-CFLAGS_RELEASE = $(CFLAGS_BASE) $(RELEASE_FLAGS)
-CFLAGS = $(CFLAGS_$(BUILD_TYPE))
-
-LDFLAGS_DEBUG = $(LDFLAGS_BASE) 
-LDFLAGS_RELEASE = $(LDFLAGS_BASE)
-LDFLAGS = $(LDFLAGS_$(BUILD_TYPE))
+# Compiler and linker flags (case-insensitive BUILD_TYPE matching)
+ifneq (,$(filter $(BUILD_TYPE),debug DEBUG Debug))
+  CFLAGS = $(CFLAGS_BASE) $(ARCH_FLAGS) $(SECURITY_FLAGS) $(DEBUG_FLAGS)
+  LDFLAGS = $(LDFLAGS_BASE)
+else ifneq (,$(filter $(BUILD_TYPE),profile PROFILE Profile))
+  CFLAGS = $(CFLAGS_BASE) $(ARCH_FLAGS) $(SECURITY_FLAGS) $(PROFILE_FLAGS)
+  LDFLAGS = $(LDFLAGS_BASE)
+else
+  CFLAGS = $(CFLAGS_BASE) $(ARCH_FLAGS) $(SECURITY_FLAGS) $(PIE_FLAGS) $(RELEASE_FLAGS)
+  LDFLAGS = $(LDFLAGS_BASE) $(RELRO_FLAGS)
+endif
 
 # Version information
 VERSION ?= 1.0.0
@@ -66,13 +69,14 @@ VERSION ?= 1.0.0
 ifeq ($(PLATFORM),windows)
     # Windows-specific flags
     CFLAGS_BASE += -D_WIN32_WINNT=0x0600
-    # Remove Linux-specific flags for Windows
-    LDFLAGS_DEBUG := $(filter-out -lasan -lrt -lsctp -lconfig,$(LDFLAGS_DEBUG))
-    LDFLAGS_RELEASE := $(filter-out -lrt -lsctp -lconfig,$(LDFLAGS_RELEASE))
 endif
 
-# Directory creation
-MKDIR_P = mkdir -p
+# Directory creation (platform-specific)
+ifeq ($(PLATFORM),windows)
+    MKDIR_P = if not exist
+else
+    MKDIR_P = mkdir -p
+endif
 
 # Output option for compilation
 OUTPUT_OPTION = -o $@

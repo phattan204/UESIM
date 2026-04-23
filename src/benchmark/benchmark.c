@@ -9,8 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
-#include <pthread.h>
+#endif
+/* pthread support via uesim.h */
 
 #ifdef __linux__
 #include <sys/resource.h>
@@ -18,7 +20,8 @@
 
 // Global variables
 static bool g_benchmark_initialized = false;
-static pthread_mutex_t g_benchmark_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_benchmark_mutex;
+static int g_benchmark_mutex_initialized = 0;
 
 uesim_error_t benchmark_init(void) {
     if (g_benchmark_initialized) {
@@ -26,7 +29,13 @@ uesim_error_t benchmark_init(void) {
     }
     
     // Initialize mutex
-    if (pthread_mutex_init(&g_benchmark_mutex, NULL) != 0) {
+    if (!g_benchmark_mutex_initialized) {
+        if (pthread_mutex_init(&g_benchmark_mutex, NULL) != 0) {
+            return UESIM_ERROR_THREAD;
+        }
+        g_benchmark_mutex_initialized = 1;
+    }
+    if (0) {
         return UESIM_ERROR_THREAD;
     }
     
@@ -771,16 +780,32 @@ uesim_error_t benchmark_rrc_procedures(benchmark_config_t* config, benchmark_met
         // This is a simplified simulation of various RRC procedures
         switch (i % 4) {
             case 0: // Registration
-                usleep(1000); // 1ms
+#ifdef _WIN32
+                Sleep(1);
+#else
+                usleep(1000);
+#endif
                 break;
             case 1: // Establishment
-                usleep(2000); // 2ms
+#ifdef _WIN32
+                Sleep(2);
+#else
+                usleep(2000);
+#endif
                 break;
             case 2: // Re-establishment
-                usleep(3000); // 3ms
+#ifdef _WIN32
+                Sleep(3);
+#else
+                usleep(3000);
+#endif
                 break;
             case 3: // Handover
-                usleep(5000); // 5ms
+#ifdef _WIN32
+                Sleep(5);
+#else
+                usleep(5000);
+#endif
                 break;
         }
         
@@ -1052,9 +1077,19 @@ uesim_error_t benchmark_crypto_operations(benchmark_config_t* config, benchmark_
 
 // Utility functions
 uint64_t benchmark_get_time_ns(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER frequency = {0};
+    LARGE_INTEGER counter;
+    if (frequency.QuadPart == 0) {
+        QueryPerformanceFrequency(&frequency);
+    }
+    QueryPerformanceCounter(&counter);
+    return (uint64_t)(counter.QuadPart * 1000000000ULL / frequency.QuadPart);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+#endif
 }
 
 uint64_t benchmark_get_memory_usage(void) {
