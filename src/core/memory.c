@@ -20,9 +20,12 @@ typedef struct {
 static memory_pool_t g_memory_pool = {0};
 
 uesim_error_t memory_init(size_t heap_size) {
+    fprintf(stderr, "DEBUG: memory_init: initializing with heap_size=%zu bytes\n", heap_size);
+    
     // Initialize memory pool
     g_memory_pool.base_address = malloc(heap_size);
     if (g_memory_pool.base_address == NULL) {
+        fprintf(stderr, "DEBUG: memory_init: malloc failed for heap\n");
         return UESIM_ERROR_MEMORY;
     }
     
@@ -30,11 +33,13 @@ uesim_error_t memory_init(size_t heap_size) {
     g_memory_pool.used_size = 0;
     
     if (pthread_mutex_init(&g_memory_pool.lock, NULL) != 0) {
+        fprintf(stderr, "DEBUG: memory_init: pthread_mutex_init failed\n");
         free(g_memory_pool.base_address);
         g_memory_pool.base_address = NULL;
         return UESIM_ERROR_THREAD;
     }
     
+    fprintf(stderr, "DEBUG: memory_init: success, base_address=%p\n", g_memory_pool.base_address);
     return UESIM_SUCCESS;
 }
 

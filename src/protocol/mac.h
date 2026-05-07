@@ -75,6 +75,15 @@ typedef enum {
     MAC_STATUS_MAX
 } mac_status_t;
 
+// MAC RACH State
+typedef enum {
+    MAC_RACH_IDLE = 0,
+    MAC_RACH_ACTIVE = 1,
+    MAC_RACH_SUCCESS = 2,
+    MAC_RACH_FAILED = 3,
+    MAC_RACH_MAX
+} mac_rach_state_t;
+
 // MAC HARQ Process
 typedef struct {
     uint8_t process_id;         // HARQ process ID
@@ -90,6 +99,24 @@ typedef struct {
     uint8_t max_retransmissions; // Maximum retransmissions allowed
     pthread_mutex_t harq_mutex;  // HARQ process protection
 } mac_harq_process_t;
+
+// MAC Logical Channel Buffer Entry
+typedef struct mac_lch_buffer_entry_t {
+    uint8_t* data;                        // Data buffer
+    size_t data_length;                   // Data length
+    uint32_t arrival_time;                // Arrival timestamp
+    struct mac_lch_buffer_entry_t* next;  // Linked list next pointer
+} mac_lch_buffer_entry_t;
+
+// MAC Logical Channel Buffer
+typedef struct {
+    mac_lch_buffer_entry_t* head;         // Queue head
+    mac_lch_buffer_entry_t* tail;         // Queue tail
+    uint32_t entry_count;                 // Number of entries
+    uint32_t total_bytes;                // Total queued bytes
+    uint32_t max_bytes;                  // Maximum allowed bytes
+    pthread_mutex_t buffer_mutex;        // Buffer protection
+} mac_lch_buffer_t;
 
 // MAC Logical Channel Info
 typedef struct {
@@ -137,8 +164,9 @@ typedef struct {
     uint8_t msg1_cyclic_prefix; // Msg1 cyclic prefix
     uint16_t ra_response_window; // RA response window (slots)
     uint8_t preamble_trans_max; // Max preamble transmissions
-    uint16_t power_ramping_step; // Power ramping step (dB)
+    uint16_t power_ramping_step; // Power ramping step (0.1 dB units)
     uint16_t ra_contention_resolution_timer; // Contention resolution timer
+    int16_t preamble_initial_rx_target_power; // Initial preamble power (dBm)
 } mac_rach_config_t;
 
 // MAC Scheduling Request Configuration
@@ -146,8 +174,81 @@ typedef struct {
     uint8_t sr_id;              // Scheduling Request ID
     uint8_t sr_prohibit_timer;  // SR prohibit timer
     uint8_t sr_trans_max;       // Max SR transmissions
+    uint8_t sr_counter;         // Current SR transmission counter
+    uint8_t pucch_resource;     // PUCCH resource index
+    uint16_t period;            // SR period (slots)
     bool sr_pending;            // SR pending flag
+    bool sr_prohibited;         // SR prohibited flag
 } mac_sr_config_t;
+
+// Buffer Status Report (BSR) Configuration
+typedef enum {
+    MAC_BSR_SINGLE = 0,         // Single entry BSR
+    MAC_BSR_SHORT = 1,          // Short BSR
+    MAC_BSR_LONG = 2,           // Long BSR
+    MAC_BSR_TRUNCATED = 3       // Truncated BSR
+} mac_bsr_type_t;
+
+// Logical Channel Group
+typedef struct {
+    uint8_t lcg_id;             // LCG ID (0-7)
+    uint32_t buffer_size;       // Current buffer size in bytes
+    bool has_data;              // Has data to send
+    bool periodic_bsr_pending;  // Periodic BSR pending
+    bool regular_bsr_pending;   // Regular BSR pending
+} mac_lcg_status_t;
+
+// BSR Control Element
+typedef struct {
+    mac_bsr_type_t bsr_type;    // BSR type
+    uint8_t lcg_id;             // LCG ID (for single/short)
+    uint8_t lcg_num;            // Number of LCGs (for long)
+    uint8_t buffer_size[8];     // Buffer size per LCG (indexed by LCG ID)
+} mac_bsr_ce_t;
+
+// Power Headroom Report (PHR) Configuration
+typedef enum {
+    MAC_PHR_SINGLE = 0,         // Single entry PHR
+    MAC_PHR_MULTI = 1,          // Multiple entry PHR
+    MAC_PHR_EXTENDED = 2        // Extended PHR
+} mac_phr_type_t;
+
+// PHR Entry
+typedef struct {
+    int8_t ph;                  // Power headroom value (dB)
+    int8_t p_cmax;              // Max TX power (dBm)
+    uint8_t serving_cell_id;    // Serving cell ID
+    bool pcmax_set;             // P_CMAX is set
+} mac_phr_entry_t;
+
+// PHR Control Element
+typedef struct {
+    mac_phr_type_t phr_type;    // PHR type
+    uint8_t num_entries;        // Number of PHR entries
+    mac_phr_entry_t entries[8]; // PHR entries
+    bool phr_triggered;         // PHR triggered flag
+    uint8_t phr_prohibit_timer; // PHR prohibit timer
+    uint8_t phr_periodic_timer; // PHR periodic timer
+} mac_phr_ce_t;
+
+// DRX (Discontinuous Reception) Configuration
+typedef struct {
+    uint16_t on_duration_timer;     // On duration timer (ms)
+    uint16_t drx_inactivity_timer;  // DRX inactivity timer (ms)
+    uint16_t drx_retransmission_timer; // DRX retransmission timer (ms)
+    uint16_t long_drx_cycle;        // Long DRX cycle length (ms)
+    uint16_t short_drx_cycle;       // Short DRX cycle length (ms)
+    uint16_t drx_start_offset;      // DRX start offset (subframes)
+    uint8_t short_cycle_count;      // Number of short cycles
+    uint16_t drx_slot_offset;       // Slot offset for DRX
+    bool drx_active;                // DRX is currently active
+    bool on_duration;               // Currently in on-duration
+    bool use_short_cycle;           // Using short DRX cycle
+    uint16_t current_cycle;         // Current DRX cycle count
+    uint32_t next_on_duration;      // Next on-duration time (ms)
+    uint32_t last_activity_time;    // Last activity time (ms)
+    bool harq_active[MAC_MAX_HARQ_PROCESSES]; // HARQ processes with pending data
+} mac_drx_config_t;
 
 // MAC Entity Configuration
 typedef struct {
@@ -159,6 +260,10 @@ typedef struct {
     mac_sr_config_t sr_config;   // Scheduling request configuration
     mac_lch_info_t lch_config[MAC_MAX_LOGICAL_CHANNELS]; // Logical channel config
     uint8_t num_lch_configured;  // Number of configured logical channels
+    mac_drx_config_t drx_config; // DRX configuration
+    mac_phr_ce_t phr_config;     // PHR configuration
+    uint16_t bsr_periodic_timer; // BSR periodic timer (ms)
+    uint16_t bsr_retx_timer;     // BSR retransmission timer (ms)
 } mac_config_t;
 
 // MAC Uplink Grant
@@ -205,6 +310,7 @@ typedef struct {
     mac_config_t config;        // MAC configuration
     mac_harq_process_t ul_harq[MAC_MAX_HARQ_PROCESSES]; // UL HARQ processes
     mac_harq_process_t dl_harq[MAC_MAX_HARQ_PROCESSES]; // DL HARQ processes
+    mac_lch_buffer_t lch_buffers[MAC_LCH_MAX]; // Per-channel data buffers
     mac_tb_t* tb_queue;         // Transport block queue
     mac_ce_t* ce_queue;         // Control element queue
     mac_ul_grant_t ul_grants[MAC_MAX_UL_GRANTS]; // UL grants
@@ -215,6 +321,15 @@ typedef struct {
     bool active;                // MAC entity active
     pthread_mutex_t mac_mutex;  // MAC entity protection
     pthread_cond_t mac_cond;    // MAC entity signaling
+    /* RACH state machine */
+    mac_rach_state_t rach_state;       // RACH procedure state
+    uint8_t rach_preamble_index;       // Current preamble index
+    uint8_t rach_attempt;              // Preamble transmission attempt
+    int16_t rach_power;                // Current preamble power (dBm)
+    uint16_t rach_backoff;             // Backoff time (ms)
+    uint16_t rach_contention_timer;    // Contention resolution timer
+    uint32_t timing_advance;          // Timing advance (N_TA)
+    uint32_t rach_ul_grant;           // UL grant from RAR
 } mac_entity_t;
 
 // Function prototypes
@@ -254,6 +369,16 @@ uesim_error_t mac_process_grant(mac_entity_t* entity, const mac_ul_grant_t* gran
 uesim_error_t mac_generate_ul_grant(mac_entity_t* entity, uint16_t tb_size, 
                                    mac_ul_grant_t* grant);
 
+// MAC Logical Channel Buffer Functions
+uesim_error_t mac_lch_buffer_init(mac_lch_buffer_t* buffer, uint32_t max_bytes);
+void mac_lch_buffer_cleanup(mac_lch_buffer_t* buffer);
+uesim_error_t mac_lch_buffer_enqueue(mac_lch_buffer_t* buffer, const void* data, size_t length);
+uesim_error_t mac_lch_buffer_dequeue(mac_lch_buffer_t* buffer, void** data, size_t* length);
+uesim_error_t mac_lch_buffer_peek(mac_lch_buffer_t* buffer, void** data, size_t* length);
+uint32_t mac_lch_buffer_get_bytes(mac_lch_buffer_t* buffer);
+uint32_t mac_lch_buffer_get_entries(mac_lch_buffer_t* buffer);
+bool mac_lch_buffer_is_empty(mac_lch_buffer_t* buffer);
+
 // MAC Logical Channel Functions
 uesim_error_t mac_configure_logical_channel(mac_entity_t* entity, 
                                            const mac_lch_info_t* lch_info);
@@ -261,6 +386,13 @@ uesim_error_t mac_prioritize_logical_channels(mac_entity_t* entity);
 uesim_error_t mac_queue_logical_channel_data(mac_entity_t* entity, 
                                             mac_logical_channel_t lch_id, 
                                             const void* data, size_t length);
+uesim_error_t mac_dequeue_logical_channel_data(mac_entity_t* entity, 
+                                              mac_logical_channel_t lch_id,
+                                              void** data, size_t* length);
+uesim_error_t mac_get_lch_buffer_status(mac_entity_t* entity, 
+                                       mac_logical_channel_t lch_id,
+                                       uint32_t* queued_bytes);
+uesim_error_t mac_get_total_buffer_status(mac_entity_t* entity, uint32_t* total_bytes);
 
 // MAC Control Element Functions
 uesim_error_t mac_create_control_element(mac_entity_t* entity, uint8_t ce_type, 
@@ -300,5 +432,46 @@ uesim_error_t mac_set_default_config(mac_config_t* config);
 uesim_error_t mac_set_rach_config(mac_config_t* config, const mac_rach_config_t* rach_config);
 uesim_error_t mac_set_sr_config(mac_config_t* config, const mac_sr_config_t* sr_config);
 uesim_error_t mac_add_logical_channel(mac_config_t* config, const mac_lch_info_t* lch_info);
+
+// MAC BSR (Buffer Status Report) Functions
+uesim_error_t mac_bsr_config(mac_entity_t* entity, uint16_t periodic_timer, uint16_t retx_timer);
+uesim_error_t mac_bsr_update_lcg(mac_entity_t* entity, uint8_t lcg_id, uint32_t buffer_size);
+uesim_error_t mac_bsr_construct(mac_entity_t* entity, mac_bsr_type_t type, mac_bsr_ce_t* bsr);
+uesim_error_t mac_bsr_trigger_regular(mac_entity_t* entity, uint8_t lcg_id);
+uesim_error_t mac_bsr_trigger_periodic(mac_entity_t* entity);
+uesim_error_t mac_bsr_cancel(mac_entity_t* entity);
+uesim_error_t mac_bsr_get_highest_priority_lcg(mac_entity_t* entity, uint8_t* lcg_id);
+uint8_t mac_bsr_buffer_size_to_index(uint32_t buffer_size);
+uint32_t mac_bsr_index_to_buffer_size(uint8_t index);
+
+// MAC PHR (Power Headroom Report) Functions
+uesim_error_t mac_phr_config(mac_entity_t* entity, uint8_t periodic_timer, uint8_t prohibit_timer);
+uesim_error_t mac_phr_trigger(mac_entity_t* entity);
+uesim_error_t mac_phr_construct(mac_entity_t* entity, mac_phr_ce_t* phr);
+uesim_error_t mac_phr_update_entry(mac_entity_t* entity, uint8_t cell_id, int8_t ph, int8_t p_cmax);
+bool mac_phr_is_triggered(mac_entity_t* entity);
+
+// MAC DRX (Discontinuous Reception) Functions
+uesim_error_t mac_drx_config(mac_entity_t* entity, const mac_drx_config_t* config);
+uesim_error_t mac_drx_start(mac_entity_t* entity);
+uesim_error_t mac_drx_stop(mac_entity_t* entity);
+uesim_error_t mac_drx_on_duration_start(mac_entity_t* entity);
+uesim_error_t mac_drx_on_duration_end(mac_entity_t* entity);
+uesim_error_t mac_drx_inactivity_timer_start(mac_entity_t* entity);
+uesim_error_t mac_drx_inactivity_timer_stop(mac_entity_t* entity);
+uesim_error_t mac_drx_retransmission_timer_start(mac_entity_t* entity, uint8_t harq_id);
+uesim_error_t mac_drx_retransmission_timer_stop(mac_entity_t* entity, uint8_t harq_id);
+bool mac_drx_is_active_time(mac_entity_t* entity);
+bool mac_drx_is_on_duration(mac_entity_t* entity);
+uesim_error_t mac_drx_update_timers(mac_entity_t* entity, uint32_t current_time_ms);
+
+// MAC SR (Scheduling Request) Enhanced Functions
+uesim_error_t mac_sr_config(mac_entity_t* entity, uint8_t sr_id, uint8_t pucch_resource,
+                           uint16_t period, uint8_t trans_max);
+uesim_error_t mac_sr_trigger(mac_entity_t* entity);
+uesim_error_t mac_sr_cancel(mac_entity_t* entity);
+uesim_error_t mac_sr_transmit(mac_entity_t* entity);
+bool mac_sr_is_pending(mac_entity_t* entity);
+bool mac_sr_is_prohibited(mac_entity_t* entity);
 
 #endif // MAC_H

@@ -6,6 +6,9 @@
 #include "uesim.h"
 #include "config/config.h"
 #include "cli/cli.h"
+#include "core/thread_pool.h"
+#include "protocol/rrc.h"
+#include "utils/log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -202,6 +205,14 @@ static uesim_error_t parse_arguments(int argc, char* argv[]) {
 static uesim_error_t initialize_application(void) {
     uesim_error_t result = UESIM_SUCCESS;
     
+    // Initialize logging
+    result = log_init();
+    if (result != UESIM_SUCCESS) {
+        fprintf(stderr, "Failed to initialize logging: %d\n", result);
+        return result;
+    }
+    LOG_INFO(LOG_CAT_NAME_CORE, "Logging initialized");
+    
     // Initialize core system
     result = uesim_init();
     if (result != UESIM_SUCCESS) {
@@ -218,12 +229,18 @@ static uesim_error_t initialize_application(void) {
     }
     
     // Initialize thread pool
-    // TODO: Create thread pool based on config
     int thread_pool_size = g_config.performance.thread_pool_size;
     if (thread_pool_size == 0) {
         thread_pool_size = 4; // Default
     }
-    printf("Thread pool size: %d\n", thread_pool_size);
+    
+    result = thread_pool_create((uint32_t)thread_pool_size, &g_thread_pool);
+    if (result != UESIM_SUCCESS) {
+        fprintf(stderr, "Failed to create thread pool: %d\n", result);
+        cli_cleanup();
+        uesim_cleanup();
+        return result;
+    }
     
     printf("Application initialized successfully\n");
     return UESIM_SUCCESS;
@@ -239,11 +256,22 @@ static void cleanup_application(void) {
         }
     }
     
+    // Destroy thread pool
+    if (g_thread_pool != NULL) {
+        thread_pool_wait(g_thread_pool);
+        thread_pool_destroy(g_thread_pool);
+        g_thread_pool = NULL;
+    }
+    
     // Cleanup CLI
     cli_cleanup();
     
     // Cleanup core system
     uesim_cleanup();
+    
+    // Cleanup logging
+    LOG_INFO(LOG_CAT_NAME_CORE, "Application cleanup completed");
+    log_cleanup();
     
     printf("Application cleanup completed\n");
 }
@@ -260,8 +288,37 @@ static uesim_error_t create_ue_instances(int count) {
             return result;
         }
         
-        // Configure UE based on settings
-        // TODO: Apply UE configuration from config
+        // Apply UE configuration from config
+        config_ue_t* ue_config = config_get_ue(&g_config);
+        config_network_t* net_config = config_get_network(&g_config);
+        
+        if (ue_config != NULL) {
+            // Generate IMSI from prefix and start number
+            snprintf(ue_ctx->imsi, sizeof(ue_ctx->imsi), "%s%07u", 
+                     ue_config->imsi_prefix, ue_config->imsi_start + i);
+            
+            // Generate MSISDN from prefix and start number
+            snprintf(ue_ctx->msisdn, sizeof(ue_ctx->msisdn), "%s%07u", 
+                     ue_config->msisdn_prefix, ue_config->msisdn_start + i);
+            
+            // Apply TAC
+            ue_ctx->tac = ue_config->tac;
+            
+            printf("UE %d configured: IMSI=%s, TAC=%u\n", 
+                   i, ue_ctx->imsi, ue_ctx->tac);
+        }
+        
+        // Apply network configuration
+        if (net_config != NULL) {
+            if (strlen(net_config->gnb_ip) > 0) {
+                ue_ctx->gnb_ip = inet_addr(net_config->gnb_ip);
+            }
+            ue_ctx->gnb_port = net_config->gnb_ngap_port;
+            
+            printf("UE %d gNB: %s:%u\n", 
+                   i, net_config->gnb_ip[0] ? net_config->gnb_ip : "default",
+                   ue_ctx->gnb_port);
+        }
         
         // Start the UE
         result = uesim_start_ue(ue_ctx);

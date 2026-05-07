@@ -88,7 +88,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coding standards
 - Build and deployment instructions
 
-## [Unreleased] - v1.1.0 Development
+## [Unreleased] - v1.2.0 Development
+
+### Added
+- Enhanced ue_context_t structure:
+  - Layer context pointers (NAS, RRC state, RRC measurement)
+  - Protocol entity arrays (MAC, RLC, PDCP per bearer)
+  - Radio bearer configuration (SRB/DRB)
+  - UE capabilities structure
+  - DRX configuration support
+  - RRC timer states (T300-T311)
+  - UE statistics tracking
+  - Context accessor functions for all layer entities
+- Complete 5G security algorithms:
+  - SNOW 3G (NEA1/NIA1) - 308 lines with S-boxes, LFSR, FSM
+  - AES-CTR (NEA2/NIA2) - 448 lines with key expansion, CMAC
+  - ZUC (NEA3/NIA3) - 339 lines with LFSR, bit reorganization
+  - Full ciphering and integrity protection support
+  - PDCP COUNT/BEARER/DIRECTION parameter handling
+- RLC AM mode completion:
+  - STATUS PDU processing with ACK_SN and NACK list parsing
+  - STATUS PDU generation with NACK bitmap construction
+  - Transmit window management (VT(A), VT(S), VT(MS))
+  - Receive window management (VR(R), VR(H), VR(X), VR(MS), VR(MR))
+  - 12-bit and 18-bit SN length support
+  - Segment offset handling (SOstart/SOend)
+  - Window insert/get operations with thread-safety
+- RLF Detection and Recovery (3GPP TS 38.331):
+  - T310 timer for RLF detection with N310/N311 thresholds
+  - T311 timer for re-establishment supervision
+  - T301 timer for re-establishment response
+  - Out-of-sync/in-sync indication handling
+  - RRC re-establishment procedure integration
+  - State backup/restore for recovery
+  - Multiple re-establishment retry support
+  - Recovery statistics tracking
+  - Thread-safe timer management
+- Multi-gNB support:
+  - `gnb_context_t` structure for gNB connection management
+  - `gnb_type_t` enum (OAI, srsRAN, Commercial, Mock)
+  - `gnb_state_t` enum for connection state tracking
+  - Extended `ue_context_t` with serving_gnb and candidate_gnbs list
+  - Functions: `uesim_add_gnb()`, `uesim_remove_gnb()`, `uesim_switch_serving_gnb()`
+  - Functions: `uesim_connect_gnb()`, `uesim_disconnect_gnb()`, `uesim_find_gnb_by_id()`
+  - Backward compatible with single-gNB configuration
+- Load testing framework:
+  - `load_test_executor_t` for managing load test scenarios
+  - 5 predefined scenarios: burst_registration, ramp_registration, session_flood, handover_stress, mixed_workload
+  - Comprehensive metrics: latency (min/max/mean/p50/p95/p99), throughput, failure rate
+  - Latency histogram with 20 buckets
+  - Multi-format reporting: text, CSV, JSON
+  - Thread-safe metrics collection with mutex protection
+- QoS flow management:
+  - `qos_flow_manager_t` for per-session QoS flow management
+  - `qos_flow_t` with 5QI support and GBR/Non-GBR classification
+  - ARP (Allocation and Retention Priority) handling
+  - Session AMBR enforcement framework
+  - DRB binding for QoS flow to data radio bearer mapping
+  - 5QI profile table with standardized 3GPP characteristics
+- ASN.1 PER encoding/decoding:
+  - `asn1_buffer_t` for bit-level encoding operations
+  - PER primitives: boolean, integer, enumerated, octet string encoding
+  - RRC message structures and encoding/decoding functions
+- SDAP Layer (3GPP TS 37.324):
+  - QoS flow to DRB mapping with reflective QoS support
+  - SDAP data PDU header construction and parsing
+  - Control PDU handling (end marker, reflective QoS)
+  - Per-PDU session entity management
+  - Thread-safe statistics tracking
+- PHY Layer Abstraction:
+  - Channel state measurement (RSRP, RSRQ, SINR, CQI)
+  - Resource block allocation interface
+  - HARQ process management (DL/UL)
+  - Timing advance handling
+  - Power control framework
+  - Cell configuration structure
+- Configuration updates:
+  - Multi-gNB network settings
+  - Load test configuration section
+  - QoS configuration section
+
+### Changed
+- Enhanced handover procedure with RSRP-based candidate selection
+- Extended error codes: added UESIM_ERROR_NOT_FOUND, UESIM_ERROR_ALREADY_EXISTS, UESIM_ERROR_CAPACITY
+
+## [1.1.0] - 2026-04-15
 
 ### Added
 - Complete PDCP layer implementation:
@@ -204,7 +288,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Features Roadmap
 
-### Planned for v1.1.0
+### Completed in v1.1.0
 - PDCP layer full implementation ✅ COMPLETED
 - RLC layer full implementation ✅ COMPLETED
 - MAC layer full implementation ✅ COMPLETED
@@ -214,14 +298,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Performance benchmarking tools ✅ COMPLETED
 - Automated test suite ✅ COMPLETED
 
-### Planned for v1.2.0
-- QoS flow management
-- PDU session handling
-- Advanced handover scenarios
-- Multi-gNB support
-- Load testing framework
-- Integration with OAI gNB
-- Integration with srsRAN 5G
+### Completed in v1.2.0
+- Enhanced ue_context_t structure ✅ COMPLETED
+- 5G Security Algorithms (SNOW3G, AES-CTR, ZUC) ✅ COMPLETED
+- RLC AM mode completion (STATUS PDU, Window Management) ✅ COMPLETED
+- RLF Detection and Recovery (3GPP TS 38.331) ✅ COMPLETED
+- QoS flow management ✅ COMPLETED
+- Multi-gNB support ✅ COMPLETED
+- Load testing framework ✅ COMPLETED
+- ASN.1 PER encoding/decoding (basic) ✅ COMPLETED
+- SDAP Layer (3GPP TS 37.324) ✅ COMPLETED
+- PHY Layer Abstraction ✅ COMPLETED
+
+### In Progress for v1.3.0
+- Structured Logging System 🔄 IN PROGRESS
+  - Core infrastructure (log.h/log.c) ✅ COMPLETED
+  - Log levels: TRACE/DEBUG/INFO/WARN/ERROR/FATAL ✅ COMPLETED
+  - Categories: CORE/PHY/MAC/RLC/PDCP/SDAP/RRC/NAS/RLF/SOCKET/CLI/QOS ✅ COMPLETED
+  - Thread-safe with mutex ✅ COMPLETED
+  - Multiple backends: console, file, callback ✅ COMPLETED
+  - ANSI color codes for console ✅ COMPLETED
+  - Module conversion: RRC (partial), MAC, NAS, RLC, PDCP, PHY 🔄 IN PROGRESS
+- Performance Metrics and Monitoring
+- Health Monitoring
+- Connection Recovery (socket reconnection, failover)
+- NAS Recovery (retry with exponential backoff)
 
 ### Planned for v2.0.0
 - 3GPP compliance certification
@@ -236,17 +337,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Technical Debt
 
-### Known Limitations
-- PDCP/RLC/MAC layer implementations are simplified
-- Full 3GPP ASN.1 encoding/decoding not yet implemented
-- Limited error recovery mechanisms
-- Basic logging and monitoring capabilities
+### Known Limitations (Updated 2026-05-05)
+- ~~PDCP/RLC/MAC layer implementations are simplified~~ → **RLC AM mode now complete with full window management**
+- Full 3GPP ASN.1 encoding/decoding not yet implemented (basic PER primitives available)
+- ~~Limited error recovery mechanisms~~ → **RLF Detection and Recovery implemented per 3GPP TS 38.331**
+- Basic logging and monitoring capabilities (structured logging planned for v1.3.0)
+
+### Resolved Technical Debt
+| Issue | Resolution | Version |
+|-------|------------|---------|
+| Simplified RLC AM mode | Full STATUS PDU processing, TX/RX window management | v1.2.0 |
+| Missing 5G security algorithms | SNOW3G, AES-CTR, ZUC implemented (NEA1-3/NIA1-3) | v1.2.0 |
+| No RLF detection | T310/T311/T301 timers, sync indication handling | v1.2.0 |
+| Basic ue_context_t | Extended with layer contexts, bearers, stats | v1.2.0 |
+
+### Remaining Technical Debt
+| Area | Description | Priority | Target Version |
+|------|-------------|----------|----------------|
+| ASN.1 PER | Full 3GPP-compliant encoding/decoding | Medium | v2.0.0 |
+| Logging | Structured logging with levels/categories | High | v1.3.0 |
+| Monitoring | Performance metrics, health checks | Medium | v1.3.0 |
+| Connection Recovery | Socket reconnection, gNB failover | Medium | v1.3.0 |
+| NAS Recovery | Retry mechanisms with backoff | Low | v1.3.0 |
 
 ### Future Improvements
-- Complete protocol stack implementation
-- Advanced error handling and recovery
-- Comprehensive performance monitoring
-- Enhanced security features
+- Complete protocol stack implementation (ongoing)
+- ~~Advanced error handling and recovery~~ → **RLF Recovery complete**
+- Comprehensive performance monitoring (v1.3.0)
+- Enhanced security features (FIPS 140-2 compliance)
 - Container orchestration support
 - Cloud-native deployment options
 

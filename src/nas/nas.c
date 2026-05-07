@@ -5,6 +5,8 @@
 
 #include "nas.h"
 #include "../core/memory.h"
+#include "../protocol/pdcp.h"
+#include "../utils/log.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -17,7 +19,23 @@ uesim_error_t nas_init(ue_context_t* ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("NAS initialized for UE %u\n", ue_ctx->ue_id);
+    /* Create NAS UE context */
+    nas_ue_context_t* nas_ctx = NULL;
+    uesim_error_t result = nas_create_ue_context(ue_ctx, &nas_ctx);
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to create context for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    /* Store NAS context in UE context */
+    result = ue_set_nas_context(ue_ctx, nas_ctx);
+    if (result != UESIM_SUCCESS) {
+        nas_destroy_ue_context(ue_ctx, nas_ctx);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to store context for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Initialized for UE %u (nas_ue_id=%u)\n", ue_ctx->ue_id, nas_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
@@ -26,7 +44,16 @@ void nas_cleanup(ue_context_t* ue_ctx) {
         return;
     }
     
-    printf("NAS cleanup completed for UE %u\n", ue_ctx->ue_id);
+    /* Get and destroy NAS context */
+    nas_ue_context_t* nas_ctx = ue_get_nas_context(ue_ctx);
+    if (nas_ctx != NULL) {
+        uint32_t nas_ue_id = nas_ctx->ue_id;
+        nas_destroy_ue_context(ue_ctx, nas_ctx);
+        ue_set_nas_context(ue_ctx, NULL);
+        LOG_INFO(LOG_CAT_NAME_NAS, "Cleanup completed for UE %u (nas_ue_id=%u)\n", ue_ctx->ue_id, nas_ue_id);
+    } else {
+        LOG_INFO(LOG_CAT_NAME_NAS, "No context to cleanup for UE %u\n", ue_ctx->ue_id);
+    }
 }
 
 uesim_error_t nas_create_ue_context(ue_context_t* ue_ctx, nas_ue_context_t** nas_ctx) {
@@ -86,10 +113,16 @@ uesim_error_t nas_create_ue_context(ue_context_t* ue_ctx, nas_ue_context_t** nas
     // Set default configuration
     nas_set_default_config(nas_ue_ctx);
     
+    // Initialize context start time for statistics
+    nas_ue_ctx->stats.context_start_time = (uint32_t)time(NULL);
+    
+    // Initialize network slicing
+    nas_slice_init(nas_ue_ctx);
+    
     nas_ue_ctx->mm_state = NAS_5GMM_DEREGISTERED;
     *nas_ctx = nas_ue_ctx;
     
-    printf("NAS UE context created: ID=%u\n", nas_ue_ctx->ue_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "UE context created: ID=%u\n", nas_ue_ctx->ue_id);
     
     return UESIM_SUCCESS;
 }
@@ -98,6 +131,9 @@ uesim_error_t nas_destroy_ue_context(ue_context_t* ue_ctx, nas_ue_context_t* nas
     if (ue_ctx == NULL || nas_ctx == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
+    
+    // Cleanup network slicing
+    nas_slice_cleanup(nas_ctx);
     
     // Destroy PDU session mutexes
     for (int i = 0; i < NAS_MAX_PDU_SESSIONS; i++) {
@@ -130,7 +166,7 @@ uesim_error_t nas_activate_ue_context(nas_ue_context_t* nas_ctx) {
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
-    printf("NAS UE context %u activated\n", nas_ctx->ue_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "UE context %u activated\n", nas_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
@@ -147,7 +183,7 @@ uesim_error_t nas_deactivate_ue_context(nas_ue_context_t* nas_ctx) {
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
-    printf("NAS UE context %u deactivated\n", nas_ctx->ue_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "UE context %u deactivated\n", nas_ctx->ue_id);
     return UESIM_SUCCESS;
 }
 
@@ -165,7 +201,7 @@ uesim_error_t nas_update_5gmm_state(nas_ue_context_t* nas_ctx, nas_5gmm_state_t 
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
-    printf("NAS UE context %u: 5GMM state changed from %d to %d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "UE context %u: 5GMM state changed from %d to %d\n", 
            nas_ctx->ue_id, old_state, new_state);
     
     return UESIM_SUCCESS;
@@ -186,7 +222,7 @@ uesim_error_t nas_update_5gsm_state(nas_ue_context_t* nas_ctx, uint8_t pdu_sessi
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS UE context %u: PDU session %u state changed from %d to %d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "UE context %u: PDU session %u state changed from %d to %d\n", 
            nas_ctx->ue_id, pdu_session_id, old_state, new_state);
     
     return UESIM_SUCCESS;
@@ -212,7 +248,7 @@ uesim_error_t nas_process_message(nas_ue_context_t* nas_ctx, const nas_message_t
         }
         
         if (!valid) {
-            printf("NAS: Integrity verification failed for message type 0x%02x\n", 
+            LOG_ERROR(LOG_CAT_NAME_NAS, "Integrity verification failed for message type 0x%02x\n", 
                    message->header.message_type);
             return UESIM_ERROR_PROTOCOL;
         }
@@ -231,19 +267,19 @@ uesim_error_t nas_process_message(nas_ue_context_t* nas_ctx, const nas_message_t
     // Process message based on type
     switch (message->header.message_type) {
         case NAS_MSG_TYPE_REGISTRATION_ACCEPT:
-            printf("NAS: Processing Registration Accept message\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Processing Registration Accept message\n");
             break;
         case NAS_MSG_TYPE_AUTHENTICATION_REQUEST:
-            printf("NAS: Processing Authentication Request message\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Processing Authentication Request message\n");
             break;
         case NAS_MSG_TYPE_SECURITY_MODE_COMMAND:
-            printf("NAS: Processing Security Mode Command message\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Processing Security Mode Command message\n");
             break;
         case NAS_MSG_TYPE_PDU_SESSION_ESTABLISHMENT_ACCEPT:
-            printf("NAS: Processing PDU Session Establishment Accept message\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Processing PDU Session Establishment Accept message\n");
             break;
         default:
-            printf("NAS: Processing unknown message type 0x%02x\n", 
+            LOG_INFO(LOG_CAT_NAME_NAS, "Processing unknown message type 0x%02x\n", 
                    message->header.message_type);
             break;
     }
@@ -288,7 +324,7 @@ uesim_error_t nas_send_message(nas_ue_context_t* nas_ctx, nas_message_t* message
     }
     
     // Send message (in real implementation, this would go to lower layers)
-    printf("NAS: Sending message type 0x%02x, length=%zu\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Sending message type 0x%02x, length=%zu\n", 
            message->header.message_type, message->message_length);
     
     // Update statistics
@@ -485,7 +521,7 @@ uesim_error_t nas_initiate_registration(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Initiated registration procedure, type=%d\n", reg_type);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Initiated registration procedure, type=%d\n", reg_type);
     
     return UESIM_SUCCESS;
 }
@@ -502,7 +538,7 @@ uesim_error_t nas_handle_registration_request(nas_ue_context_t* nas_ctx,
     }
     
     // Process registration request
-    printf("NAS: Handling registration request, type=%d, identity=%s\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling registration request, type=%d, identity=%s\n", 
            request->registration_type, request->mobile_identity);
     
     return UESIM_SUCCESS;
@@ -520,7 +556,7 @@ uesim_error_t nas_handle_registration_accept(nas_ue_context_t* nas_ctx,
     }
     
     // Process registration accept
-    printf("NAS: Handling registration accept, GUTI=%s\n", accept->guti);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling registration accept, GUTI=%s\n", accept->guti);
     
     // Update UE identity with assigned GUTI
     nas_update_ue_identity(nas_ctx, &nas_ctx->identity);
@@ -567,7 +603,7 @@ uesim_error_t nas_send_registration_complete(nas_ue_context_t* nas_ctx) {
     
     nas_destroy_message(message);
     
-    printf("NAS: Sent registration complete\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Sent registration complete\n");
     
     return UESIM_SUCCESS;
 }
@@ -585,7 +621,7 @@ uesim_error_t nas_initiate_authentication(nas_ue_context_t* nas_ctx) {
     
     // Authentication is typically initiated by the network
     // This function would be called when receiving an authentication request
-    printf("NAS: Authentication procedure initiated\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Authentication procedure initiated\n");
     
     return UESIM_SUCCESS;
 }
@@ -601,17 +637,116 @@ uesim_error_t nas_handle_authentication_request(nas_ue_context_t* nas_ctx,
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Process authentication request
-    printf("NAS: Handling authentication request, data length=%zu\n", data_length);
+    /* 5G-AKA Authentication Request parsing (3GPP TS 24.501)
+     * Format: 
+     *   - ngKSI (1 byte): Key Set Identifier
+     *   - ABBA (variable): Authentication management parameters
+     *   - RAND (16 bytes): Random challenge
+     *   - AUTN (16 bytes): Authentication token
+     *   - EAP message (optional)
+     */
     
-    // Update statistics
+    /* Minimum length: ngKSI(1) + RAND(16) + AUTN(16) = 33 bytes */
+    if (data_length < 33) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Auth request too short: %zu bytes (min 33)\n", data_length);
+        return UESIM_ERROR_PROTOCOL;
+    }
+    
+    size_t offset = 0;
+    
+    /* Parse ngKSI */
+    uint8_t ngksi = auth_data[offset++];
+    bool tsc = (ngksi & 0x80) != 0;  /* Type of Security Context */
+    uint8_t ksi_value = ngksi & 0x07;
+    
+    /* Parse RAND (16 bytes) */
+    uint8_t rand[16];
+    memcpy(rand, &auth_data[offset], 16);
+    offset += 16;
+    
+    /* Parse AUTN (16 bytes) */
+    uint8_t autn[16];
+    memcpy(autn, &auth_data[offset], 16);
+    offset += 16;
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Auth request - ngKSI=%u (TSC=%d), RAND=0x%02X..., AUTN=0x%02X...\n",
+           ksi_value, tsc, rand[0], autn[0]);
+    
+    /* Update authentication context */
     if (pthread_mutex_lock(&nas_ctx->nas_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
     
+    nas_ctx->auth_context.auth_type = NAS_AUTHENTICATION_TYPE_5G_AKA;
+    nas_ctx->auth_context.current_vector = 0;
+    
+    /* Store RAND in current auth vector */
+    nas_auth_vector_t* vector = &nas_ctx->auth_context.vectors[0];
+    memcpy(vector->rand, rand, 16);
+    memcpy(vector->autn, autn, 16);
+    vector->used = false;
+    nas_ctx->auth_context.num_vectors = 1;
+    
     nas_ctx->stats.authentication_requests++;
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
+    
+    /* Validate AUTN and compute RES using stored credentials
+     * In a real implementation, this would:
+     * 1. Extract SQN and AMF from AUTN
+     * 2. Compute AK using K and RAND
+     * 3. Verify MAC in AUTN
+     * 4. Compute RES using K and RAND
+     * 5. Derive Kausf, Kseaf, Kamf, and finally Knas_int/enc
+     * 
+     * For simulation, we compute a simplified response
+     */
+    
+    /* Compute RES (Response) - simplified simulation
+     * Real 5G-AKA uses Milenage algorithm with secret key K
+     */
+    uint8_t res[16];
+    memset(res, 0, 16);
+    
+    /* Simulated RES computation (XOR with RAND for demo) */
+    for (int i = 0; i < 16; i++) {
+        res[i] = rand[i] ^ autn[i] ^ (uint8_t)(ksi_value + i);
+    }
+    
+    /* Derive KASME (simplified - real impl uses KDF from TS 33.501) */
+    uint8_t kasme[32];
+    memset(kasme, 0, 32);
+    for (int i = 0; i < 16; i++) {
+        kasme[i] = rand[i] ^ res[i];
+        kasme[i + 16] = autn[i] ^ res[i];
+    }
+    
+    /* Store derived keys */
+    if (pthread_mutex_lock(&nas_ctx->security_context.security_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Derive NAS keys from KASME using KDF (TS 33.501 Annex A.2) */
+    /* Knas_enc = KDF(KASME, 0x01 || NAS_enc_alg) */
+    /* Knas_int = KDF(KASME, 0x02 || NAS_int_alg) */
+    /* Simplified derivation for simulation */
+    for (int i = 0; i < 16; i++) {
+        nas_ctx->security_context.knas_enc[i] = kasme[i] ^ 0xAA;
+        nas_ctx->security_context.knas_int[i] = kasme[i + 16] ^ 0x55;
+    }
+    
+    nas_ctx->security_context.ksi = ksi_value;
+    
+    pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
+    
+    /* Send authentication response with RES */
+    uesim_error_t result = nas_send_authentication_response(nas_ctx, res, 16);
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to send authentication response\n");
+        return result;
+    }
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Authentication response sent, RES computed\n");
     
     return UESIM_SUCCESS;
 }
@@ -654,7 +789,7 @@ uesim_error_t nas_send_authentication_response(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Sent authentication response\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Sent authentication response\n");
     
     return UESIM_SUCCESS;
 }
@@ -671,7 +806,7 @@ uesim_error_t nas_handle_authentication_result(nas_ue_context_t* nas_ctx,
     }
     
     // Process authentication result
-    printf("NAS: Handling authentication result, data length=%zu\n", data_length);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling authentication result, data length=%zu\n", data_length);
     
     // Update authentication status
     if (pthread_mutex_lock(&nas_ctx->nas_mutex) != 0) {
@@ -699,7 +834,7 @@ uesim_error_t nas_initiate_security_mode_control(nas_ue_context_t* nas_ctx) {
     
     // Security mode control is typically initiated by the network
     // This function would be called when receiving a security mode command
-    printf("NAS: Security mode control procedure initiated\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Security mode control procedure initiated\n");
     
     return UESIM_SUCCESS;
 }
@@ -715,29 +850,113 @@ uesim_error_t nas_handle_security_mode_command(nas_ue_context_t* nas_ctx,
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Process security mode command
-    printf("NAS: Handling security mode command, ciphering alg=%d, integrity alg=%d\n", 
-           command->selected_nas_security_algorithms, command->selected_nas_integrity_algorithm);
+    /* Process Security Mode Command per 3GPP TS 24.501 Section 5.4.2
+     * 
+     * The network sends this command to:
+     * 1. Activate NAS security (integrity protection and ciphering)
+     * 2. Change NAS security algorithms
+     * 3. Perform a key change on the NAS level
+     * 
+     * Message contents:
+     *   - Selected NAS security algorithms (ciphering + integrity)
+     *   - ngKSI (Key Set Identifier)
+     *   - Replayed UE security capabilities
+     *   - IMEISV request (optional)
+     *   - Nonce UE / Nonce AMF (for key derivation)
+     */
     
-    // Update security context
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling security mode command\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "     Ciphering: NEA%d, Integrity: NIA%d\n", 
+           command->selected_nas_security_algorithms, 
+           command->selected_nas_integrity_algorithm);
+    LOG_INFO(LOG_CAT_NAME_NAS, "     ngKSI: TSC=%d, value=%u\n", command->ngksi_tsc, command->ngksi_value);
+    
+    /* Validate selected algorithms against UE capabilities
+     * UE should support at least NEA0/NIA0 (null encryption)
+     * Real UE would check against its security capabilities
+     */
+    if (command->selected_nas_security_algorithms > NAS_CIPHERING_ALG_NEA3) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Unsupported ciphering algorithm: NEA%d\n", 
+                command->selected_nas_security_algorithms);
+        return UESIM_ERROR_PROTOCOL;
+    }
+    
+    if (command->selected_nas_integrity_algorithm > NAS_INTEGRITY_ALG_NIA3) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Unsupported integrity algorithm: NIA%d\n", 
+                command->selected_nas_integrity_algorithm);
+        return UESIM_ERROR_PROTOCOL;
+    }
+    
+    /* Update security context with selected algorithms */
     if (pthread_mutex_lock(&nas_ctx->security_context.security_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
     
     nas_ctx->security_context.ciphering_alg = command->selected_nas_security_algorithms;
     nas_ctx->security_context.integrity_alg = command->selected_nas_integrity_algorithm;
+    nas_ctx->security_context.ksi = command->ngksi_value;
+    
+    /* Derive NAS keys if we have KASME from authentication
+     * In 5G, keys are derived from KAMF which is derived from KASME
+     * 
+     * For this implementation, we derive keys from stored KASME
+     * Real implementation would:
+     * 1. Use KDF to derive KAMF from KASME
+     * 2. Use KDF to derive KNAS_enc and KNAS_int from KAMF
+     */
+    
+    /* Check if we have authentication vectors with derived keys */
+    if (nas_ctx->auth_context.num_vectors > 0) {
+        nas_auth_vector_t* vector = &nas_ctx->auth_context.vectors[nas_ctx->auth_context.current_vector];
+        
+        /* Derive NAS keys using KDF per 3GPP TS 33.501 Annex A.8 */
+        /* For simulation, derive from KASME stored in auth vector */
+        uint8_t kamf[32];
+        memset(kamf, 0, 32);
+        
+        /* Build KAMF from KASME (simplified) */
+        for (int i = 0; i < 16; i++) {
+            kamf[i] = vector->kasme[i];
+            kamf[i + 16] = vector->kasme[i + 16];
+        }
+        
+        /* Derive NAS keys using proper KDF */
+        nas_derive_nas_keys(nas_ctx, kamf);
+        
+        /* Clear sensitive data */
+        memset(kamf, 0, 32);
+    }
+    
+    /* Reset NAS COUNT values for new security context */
+    nas_ctx->security_context.downlink_count = 0;
+    nas_ctx->security_context.uplink_count = 0;
     nas_ctx->security_context.security_context_valid = true;
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    // Update statistics
+    /* Update statistics */
     if (pthread_mutex_lock(&nas_ctx->nas_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
     
     nas_ctx->stats.security_mode_commands++;
+    nas_ctx->stats.security_active = true;
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
+    
+    /* Send Security Mode Complete
+     * This message confirms the security mode command
+     * It should be integrity protected with the new security context
+     */
+    uesim_error_t result = nas_send_security_mode_complete(nas_ctx);
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to send security mode complete\n");
+        return result;
+    }
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Security context activated successfully\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "     KNAS_enc and KNAS_int derived and stored\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "     NAS COUNT reset to 0\n");
     
     return UESIM_SUCCESS;
 }
@@ -779,7 +998,7 @@ uesim_error_t nas_send_security_mode_complete(nas_ue_context_t* nas_ctx) {
     
     nas_destroy_message(message);
     
-    printf("NAS: Sent security mode complete\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Sent security mode complete\n");
     
     return UESIM_SUCCESS;
 }
@@ -799,7 +1018,7 @@ uesim_error_t nas_initiate_pdu_session_establishment(nas_ue_context_t* nas_ctx,
     
     // Validate PDU session ID range (1-15 for 5G)
     if (pdu_session_id < 1 || pdu_session_id > 15) {
-        printf("NAS: Invalid PDU session ID %u, must be 1-15\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Invalid PDU session ID %u, must be 1-15\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -810,7 +1029,7 @@ uesim_error_t nas_initiate_pdu_session_establishment(nas_ue_context_t* nas_ctx,
     
     if (nas_ctx->pdu_sessions[pdu_session_id].active) {
         pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
-        printf("NAS: PDU session %u already active\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "PDU session %u already active\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -853,7 +1072,7 @@ uesim_error_t nas_initiate_pdu_session_establishment(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Initiated PDU session establishment, session ID=%u, type=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Initiated PDU session establishment, session ID=%u, type=%d\n", 
            pdu_session_id, session_type);
     
     return UESIM_SUCCESS;
@@ -872,12 +1091,12 @@ uesim_error_t nas_handle_pdu_session_establishment_request(nas_ue_context_t* nas
     
     // Validate PDU session ID
     if (request->pdu_session_id >= NAS_MAX_PDU_SESSIONS) {
-        printf("NAS: Invalid PDU session ID %u\n", request->pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Invalid PDU session ID %u\n", request->pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
     // Process PDU session establishment request
-    printf("NAS: Handling PDU session establishment request, session ID=%u, type=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling PDU session establishment request, session ID=%u, type=%d\n", 
            request->pdu_session_id, request->pdu_session_type);
     
     // Update PDU session configuration
@@ -908,7 +1127,7 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
     
     // Validate PDU session ID
     if (pdu_session_id < 1 || pdu_session_id > 15) {
-        printf("NAS: Invalid PDU session ID %u for establishment accept\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Invalid PDU session ID %u for establishment accept\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -998,7 +1217,7 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
     
     nas_destroy_message(message);
     
-    printf("NAS: Sent PDU session establishment accept, session ID=%u, IP=%u.%u.%u.%u\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Sent PDU session establishment accept, session ID=%u, IP=%u.%u.%u.%u\n", 
            pdu_session_id,
            (pdu_address >> 24) & 0xFF,
            (pdu_address >> 16) & 0xFF,
@@ -1020,7 +1239,7 @@ uesim_error_t nas_handle_pdu_session_establishment_reject(nas_ue_context_t* nas_
     }
     
     // Process PDU session establishment reject
-    printf("NAS: Handling PDU session establishment reject, session ID=%u, cause=%u\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling PDU session establishment reject, session ID=%u, cause=%u\n", 
            pdu_session_id, cause);
     
     // Update PDU session state
@@ -1048,7 +1267,7 @@ uesim_error_t nas_initiate_pdu_session_modification(nas_ue_context_t* nas_ctx,
     
     if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
         pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
-        printf("NAS: PDU session %u not active for modification\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "PDU session %u not active for modification\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1079,7 +1298,7 @@ uesim_error_t nas_initiate_pdu_session_modification(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Initiated PDU session modification, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Initiated PDU session modification, session ID=%u\n", pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1102,7 +1321,7 @@ uesim_error_t nas_initiate_pdu_session_release(nas_ue_context_t* nas_ctx,
     
     if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
         pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
-        printf("NAS: PDU session %u not active for release\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "PDU session %u not active for release\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1133,7 +1352,7 @@ uesim_error_t nas_initiate_pdu_session_release(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Initiated PDU session release, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Initiated PDU session release, session ID=%u\n", pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1153,7 +1372,7 @@ uesim_error_t nas_handle_pdu_session_modification_command(nas_ue_context_t* nas_
     }
     
     // Process PDU session modification command
-    printf("NAS: Handling PDU session modification command, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling PDU session modification command, session ID=%u\n", pdu_session_id);
     
     // Update PDU session configuration based on command
     if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
@@ -1191,7 +1410,7 @@ uesim_error_t nas_handle_pdu_session_modification_command(nas_ue_context_t* nas_
     
     nas_destroy_message(message);
     
-    printf("NAS: Completed PDU session modification, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Completed PDU session modification, session ID=%u\n", pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1210,7 +1429,7 @@ uesim_error_t nas_handle_pdu_session_release_command(nas_ue_context_t* nas_ctx,
     }
     
     // Process PDU session release command
-    printf("NAS: Handling PDU session release command, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Handling PDU session release command, session ID=%u\n", pdu_session_id);
     
     // Deactivate PDU session
     if (pthread_mutex_lock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex) != 0) {
@@ -1252,7 +1471,7 @@ uesim_error_t nas_handle_pdu_session_release_command(nas_ue_context_t* nas_ctx,
     
     nas_destroy_message(message);
     
-    printf("NAS: Completed PDU session release, session ID=%u\n", pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Completed PDU session release, session ID=%u\n", pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1277,14 +1496,14 @@ uesim_error_t nas_add_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id
     // Check if session is active
     if (!nas_ctx->pdu_sessions[pdu_session_id].active) {
         pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
-        printf("NAS: Cannot add QoS flow to inactive PDU session %u\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Cannot add QoS flow to inactive PDU session %u\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
     // Check if we have space for more QoS flows
     if (nas_ctx->pdu_sessions[pdu_session_id].num_qos_flows >= 8) {
         pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
-        printf("NAS: Maximum QoS flows reached for PDU session %u\n", pdu_session_id);
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Maximum QoS flows reached for PDU session %u\n", pdu_session_id);
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1296,7 +1515,7 @@ uesim_error_t nas_add_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS: Added QoS flow QFI=%u to PDU session %u\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Added QoS flow QFI=%u to PDU session %u\n", 
            qos_flow->qfi, pdu_session_id);
     
     return UESIM_SUCCESS;
@@ -1333,7 +1552,7 @@ uesim_error_t nas_remove_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS: Removed QoS flow QFI=%u from PDU session %u\n", qfi, pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Removed QoS flow QFI=%u from PDU session %u\n", qfi, pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1365,7 +1584,7 @@ uesim_error_t nas_modify_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS: Modified QoS flow QFI=%u in PDU session %u\n", qos_flow->qfi, pdu_session_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Modified QoS flow QFI=%u in PDU session %u\n", qos_flow->qfi, pdu_session_id);
     
     return UESIM_SUCCESS;
 }
@@ -1441,7 +1660,7 @@ uesim_error_t nas_update_pdu_session_ambr(nas_ue_context_t* nas_ctx, uint8_t pdu
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS: Updated PDU session %u AMBR: UL=%u kbps, DL=%u kbps\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Updated PDU session %u AMBR: UL=%u kbps, DL=%u kbps\n", 
            pdu_session_id, ul_ambr, dl_ambr);
     
     return UESIM_SUCCESS;
@@ -1468,7 +1687,7 @@ uesim_error_t nas_create_security_context(nas_ue_context_t* nas_ctx,
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    printf("NAS: Created security context, ciphering=%d, integrity=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Created security context, ciphering=%d, integrity=%d\n", 
            cipher_alg, integrity_alg);
     
     return UESIM_SUCCESS;
@@ -1491,7 +1710,7 @@ uesim_error_t nas_destroy_security_context(nas_ue_context_t* nas_ctx) {
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    printf("NAS: Destroyed security context\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Destroyed security context\n");
     
     return UESIM_SUCCESS;
 }
@@ -1512,7 +1731,7 @@ uesim_error_t nas_update_security_context(nas_ue_context_t* nas_ctx,
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    printf("NAS: Updated security context, ciphering=%d, integrity=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Updated security context, ciphering=%d, integrity=%d\n", 
            new_cipher_alg, new_integrity_alg);
     
     return UESIM_SUCCESS;
@@ -1535,13 +1754,52 @@ uesim_error_t nas_integrity_protect_message(nas_ue_context_t* nas_ctx,
         return UESIM_SUCCESS; // NULL algorithm
     }
     
-    // In a real implementation, this would compute the MAC using the selected algorithm
-    // For now, we'll just set the flag
-    message->integrity_protected = true;
-    message->header.message_authentication_code = 0x12345678; // Dummy MAC
+    // Prepare cipher parameters for NAS integrity protection
+    pdcp_cipher_params_t params = {
+        .count = nas_ctx->security_context.uplink_count,
+        .bearer = 0,  // NAS signaling bearer
+        .direction = PDCP_DIRECTION_UPLINK
+    };
     
-    printf("NAS: Applied integrity protection to message type 0x%02x\n", 
-           message->header.message_type);
+    uint32_t mac = 0;
+    uesim_error_t result = UESIM_SUCCESS;
+    
+    // Compute MAC using the selected algorithm
+    switch (nas_ctx->security_context.integrity_alg) {
+        case NAS_INTEGRITY_ALG_NIA1:  // SNOW 3G
+            result = snow3g_compute_mac(nas_ctx->security_context.knas_int,
+                                        message->message_data, message->message_length,
+                                        &params, &mac);
+            break;
+        case NAS_INTEGRITY_ALG_NIA2:  // AES-128
+            result = aes_compute_mac(nas_ctx->security_context.knas_int,
+                                     message->message_data, message->message_length,
+                                     &params, &mac);
+            break;
+        case NAS_INTEGRITY_ALG_NIA3:  // ZUC
+            result = zuc_compute_mac(nas_ctx->security_context.knas_int,
+                                     message->message_data, message->message_length,
+                                     &params, &mac);
+            break;
+        default:
+            message->integrity_protected = false;
+            return UESIM_SUCCESS;
+    }
+    
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to compute MAC for message type 0x%02x\n", 
+               message->header.message_type);
+        return result;
+    }
+    
+    message->integrity_protected = true;
+    message->header.message_authentication_code = mac;
+    
+    // Increment uplink count after successful protection
+    nas_ctx->security_context.uplink_count++;
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Applied integrity protection (NIA%d) to message type 0x%02x, MAC=0x%08x\n", 
+           nas_ctx->security_context.integrity_alg, message->header.message_type, mac);
     
     return UESIM_SUCCESS;
 }
@@ -1551,6 +1809,8 @@ uesim_error_t nas_verify_integrity_protection(nas_ue_context_t* nas_ctx,
     if (nas_ctx == NULL || message == NULL || valid == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
+    
+    *valid = false;
     
     // Check if security context is valid
     if (!nas_ctx->security_context.security_context_valid) {
@@ -1570,12 +1830,53 @@ uesim_error_t nas_verify_integrity_protection(nas_ue_context_t* nas_ctx,
         return UESIM_SUCCESS;
     }
     
-    // In a real implementation, this would verify the MAC using the selected algorithm
-    // For now, we'll just accept the dummy MAC
-    *valid = (message->header.message_authentication_code == 0x12345678);
+    // Prepare cipher parameters for NAS integrity verification
+    pdcp_cipher_params_t params = {
+        .count = nas_ctx->security_context.downlink_count,
+        .bearer = 0,  // NAS signaling bearer
+        .direction = PDCP_DIRECTION_DOWNLINK
+    };
     
-    printf("NAS: Verified integrity protection for message type 0x%02x, valid=%s\n", 
-           message->header.message_type, *valid ? "true" : "false");
+    uint32_t computed_mac = 0;
+    uesim_error_t result = UESIM_SUCCESS;
+    
+    // Compute MAC using the selected algorithm
+    switch (nas_ctx->security_context.integrity_alg) {
+        case NAS_INTEGRITY_ALG_NIA1:  // SNOW 3G
+            result = snow3g_compute_mac(nas_ctx->security_context.knas_int,
+                                        message->message_data, message->message_length,
+                                        &params, &computed_mac);
+            break;
+        case NAS_INTEGRITY_ALG_NIA2:  // AES-128
+            result = aes_compute_mac(nas_ctx->security_context.knas_int,
+                                     message->message_data, message->message_length,
+                                     &params, &computed_mac);
+            break;
+        case NAS_INTEGRITY_ALG_NIA3:  // ZUC
+            result = zuc_compute_mac(nas_ctx->security_context.knas_int,
+                                     message->message_data, message->message_length,
+                                     &params, &computed_mac);
+            break;
+        default:
+            *valid = true;
+            return UESIM_SUCCESS;
+    }
+    
+    if (result != UESIM_SUCCESS) {
+        LOG_INFO(LOG_CAT_NAME_NAS, "Failed to compute MAC for verification of message type 0x%02x\n", 
+               message->header.message_type);
+        return result;
+    }
+    
+    // Compare computed MAC with received MAC
+    *valid = (computed_mac == message->header.message_authentication_code);
+    
+    // Increment downlink count after verification
+    nas_ctx->security_context.downlink_count++;
+    
+    LOG_INFO(LOG_CAT_NAME_NAS, "Verified integrity protection (NIA%d) for message type 0x%02x, valid=%s (expected=0x%08x, got=0x%08x)\n", 
+           nas_ctx->security_context.integrity_alg, message->header.message_type, 
+           *valid ? "true" : "false", computed_mac, message->header.message_authentication_code);
     
     return UESIM_SUCCESS;
 }
@@ -1596,11 +1897,52 @@ uesim_error_t nas_cipher_message(nas_ue_context_t* nas_ctx, nas_message_t* messa
         return UESIM_SUCCESS; // NULL algorithm
     }
     
-    // In a real implementation, this would apply ciphering using the selected algorithm
-    // For now, we'll just set the flag
+    // Check if message has data to cipher
+    if (message->message_data == NULL || message->message_length == 0) {
+        message->ciphered = false;
+        return UESIM_SUCCESS;
+    }
+    
+    // Prepare cipher parameters for NAS ciphering
+    pdcp_cipher_params_t params = {
+        .count = nas_ctx->security_context.uplink_count,
+        .bearer = 0,  // NAS signaling bearer
+        .direction = PDCP_DIRECTION_UPLINK
+    };
+    
+    uesim_error_t result = UESIM_SUCCESS;
+    
+    // Apply ciphering using the selected algorithm
+    switch (nas_ctx->security_context.ciphering_alg) {
+        case NAS_CIPHERING_ALG_NEA1:  // SNOW 3G
+            result = snow3g_encrypt(nas_ctx->security_context.knas_enc, &params,
+                                    message->message_data, message->message_data,
+                                    message->message_length);
+            break;
+        case NAS_CIPHERING_ALG_NEA2:  // AES-128
+            result = aes_encrypt(nas_ctx->security_context.knas_enc, &params,
+                                  message->message_data, message->message_data,
+                                  message->message_length);
+            break;
+        case NAS_CIPHERING_ALG_NEA3:  // ZUC
+            result = zuc_encrypt(nas_ctx->security_context.knas_enc, &params,
+                                  message->message_data, message->message_data,
+                                  message->message_length);
+            break;
+        default:
+            message->ciphered = false;
+            return UESIM_SUCCESS;
+    }
+    
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to cipher message type 0x%02x\n", message->header.message_type);
+        return result;
+    }
+    
     message->ciphered = true;
     
-    printf("NAS: Applied ciphering to message type 0x%02x\n", message->header.message_type);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Applied ciphering (NEA%d) to message type 0x%02x, length=%zu\n", 
+           nas_ctx->security_context.ciphering_alg, message->header.message_type, message->message_length);
     
     return UESIM_SUCCESS;
 }
@@ -1621,11 +1963,52 @@ uesim_error_t nas_decipher_message(nas_ue_context_t* nas_ctx, nas_message_t* mes
         return UESIM_SUCCESS; // NULL algorithm
     }
     
-    // In a real implementation, this would apply deciphering using the selected algorithm
-    // For now, we'll just clear the flag
+    // Check if message has data to decipher
+    if (message->message_data == NULL || message->message_length == 0) {
+        message->ciphered = false;
+        return UESIM_SUCCESS;
+    }
+    
+    // Prepare cipher parameters for NAS deciphering
+    pdcp_cipher_params_t params = {
+        .count = nas_ctx->security_context.downlink_count,
+        .bearer = 0,  // NAS signaling bearer
+        .direction = PDCP_DIRECTION_DOWNLINK
+    };
+    
+    uesim_error_t result = UESIM_SUCCESS;
+    
+    // Apply deciphering using the selected algorithm
+    switch (nas_ctx->security_context.ciphering_alg) {
+        case NAS_CIPHERING_ALG_NEA1:  // SNOW 3G
+            result = snow3g_decrypt(nas_ctx->security_context.knas_enc, &params,
+                                    message->message_data, message->message_data,
+                                    message->message_length);
+            break;
+        case NAS_CIPHERING_ALG_NEA2:  // AES-128
+            result = aes_decrypt(nas_ctx->security_context.knas_enc, &params,
+                                  message->message_data, message->message_data,
+                                  message->message_length);
+            break;
+        case NAS_CIPHERING_ALG_NEA3:  // ZUC
+            result = zuc_decrypt(nas_ctx->security_context.knas_enc, &params,
+                                  message->message_data, message->message_data,
+                                  message->message_length);
+            break;
+        default:
+            message->ciphered = false;
+            return UESIM_SUCCESS;
+    }
+    
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Failed to decipher message type 0x%02x\n", message->header.message_type);
+        return result;
+    }
+    
     message->ciphered = false;
     
-    printf("NAS: Applied deciphering to message type 0x%02x\n", message->header.message_type);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Applied deciphering (NEA%d) to message type 0x%02x, length=%zu\n", 
+           nas_ctx->security_context.ciphering_alg, message->header.message_type, message->message_length);
     
     return UESIM_SUCCESS;
 }
@@ -1650,11 +2033,77 @@ uesim_error_t nas_generate_authentication_vector(nas_ue_context_t* nas_ctx,
     
     vector->used = false;
     
-    printf("NAS: Generated authentication vector\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Generated authentication vector\n");
     
     return UESIM_SUCCESS;
 }
 
+/*
+ * Constant-time memory comparison to prevent timing attacks
+ * Returns 0 if equal, non-zero if different
+ */
+static int constant_time_memcmp(const uint8_t* a, const uint8_t* b, size_t len) {
+    uint8_t result = 0;
+    for (size_t i = 0; i < len; i++) {
+        result |= a[i] ^ b[i];
+    }
+    return result;
+}
+
+/*
+ * Compute RES* (RES star) per 3GPP TS 33.501 Annex A.4
+ * RES* = KDF(FC=0x6B, P0=RES, L0=len(RES), P1=CK||IK, L1=32)
+ * 
+ * For 5G-AKA, the UE computes RES* from RES, CK, and IK
+ * The network computes XRES* from XRES, CK, and IK
+ */
+static void nas_compute_res_star(const uint8_t* res, size_t res_len,
+                                  const uint8_t* ck, const uint8_t* ik,
+                                  uint8_t* res_star, size_t res_star_len) {
+    /* Build KDF input for RES* derivation */
+    uint8_t s[64];
+    size_t s_len = 0;
+    
+    /* FC = 0x6B for RES* derivation */
+    s[s_len++] = 0x6B;
+    
+    /* P0 = RES, L0 = length of RES */
+    memcpy(&s[s_len], res, res_len);
+    s_len += res_len;
+    s[s_len++] = (res_len >> 8) & 0xFF;
+    s[s_len++] = res_len & 0xFF;
+    
+    /* P1 = CK || IK, L1 = 32 */
+    memcpy(&s[s_len], ck, 16);
+    s_len += 16;
+    memcpy(&s[s_len], ik, 16);
+    s_len += 16;
+    s[s_len++] = 0;  /* L1 high byte = 0 */
+    s[s_len++] = 32;  /* L1 low byte = 32 */
+    
+    /* Derive RES* using simplified KDF (production: HMAC-SHA-256) */
+    memset(res_star, 0, res_star_len);
+    for (size_t i = 0; i < res_star_len; i++) {
+        res_star[i] = ck[i % 16] ^ ik[i % 16];
+        for (size_t j = 0; j < s_len; j++) {
+            res_star[i] ^= s[j];
+            res_star[i] = (res_star[i] << 1) | (res_star[i] >> 7);
+        }
+        res_star[i] ^= (uint8_t)(0x6B + i);
+    }
+}
+
+/*
+ * Validate 5G-AKA authentication response per 3GPP TS 33.501 Section 6.3.3
+ * 
+ * For 5G-AKA:
+ *   - UE computes RES* from RES, CK, IK
+ *   - Network compares RES* with XRES*
+ * 
+ * For EAP-AKA':
+ *   - Response is EAP-Response/AKA'-Challenge
+ *   - Validate RES in AT_RES attribute
+ */
 uesim_error_t nas_validate_authentication_response(nas_ue_context_t* nas_ctx, 
                                                   const uint8_t* response, size_t response_length,
                                                   bool* valid) {
@@ -1662,36 +2111,292 @@ uesim_error_t nas_validate_authentication_response(nas_ue_context_t* nas_ctx,
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // In a real implementation, this would validate the response against the expected XRES
-    // For now, we'll just accept any response
-    *valid = true;
+    *valid = false;
     
-    printf("NAS: Validated authentication response, valid=%s\n", *valid ? "true" : "false");
+    /* Check if we have authentication vectors available */
+    if (nas_ctx->auth_context.num_vectors == 0) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "No authentication vectors available for validation\n");
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    /* Get current authentication vector */
+    nas_auth_vector_t* vector = &nas_ctx->auth_context.vectors[nas_ctx->auth_context.current_vector];
+    
+    if (vector->used) {
+        LOG_ERROR(LOG_CAT_NAME_NAS, "Authentication vector already used\n");
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    /* Validate based on authentication type */
+    switch (nas_ctx->auth_context.auth_type) {
+        case NAS_AUTHENTICATION_TYPE_5G_AKA:
+        case NAS_AUTHENTICATION_TYPE_5G_AKA_PRIME: {
+            /*
+             * 5G-AKA: Validate RES* against XRES*
+             * 
+             * The response should contain RES (16 bytes)
+             * We compute RES* and compare with XRES*
+             */
+            
+            /* Extract RES from response (first 16 bytes) */
+            uint8_t res[16];
+            size_t res_len = (response_length < 16) ? response_length : 16;
+            memcpy(res, response, res_len);
+            
+            /* Pad with zeros if shorter than 16 bytes */
+            if (res_len < 16) {
+                memset(res + res_len, 0, 16 - res_len);
+            }
+            
+            /* Extract CK and IK from KASME (first 16 bytes = CK, next 16 bytes = IK) */
+            uint8_t ck[16], ik[16];
+            memcpy(ck, vector->kasme, 16);
+            memcpy(ik, vector->kasme + 16, 16);
+            
+            /* Compute RES* */
+            uint8_t res_star[32];
+            nas_compute_res_star(res, res_len, ck, ik, res_star, 32);
+            
+            /* Compute XRES* from XRES */
+            uint8_t xres_star[32];
+            nas_compute_res_star(vector->xres, 16, ck, ik, xres_star, 32);
+            
+            /* Compare RES* with XRES* in constant time */
+            int diff = constant_time_memcmp(res_star, xres_star, 32);
+            *valid = (diff == 0);
+            
+            /* Clear sensitive data */
+            memset(res, 0, 16);
+            memset(ck, 0, 16);
+            memset(ik, 0, 16);
+            memset(res_star, 0, 32);
+            memset(xres_star, 0, 32);
+            
+            LOG_INFO(LOG_CAT_NAME_NAS, "5G-AKA authentication response validation: %s\n", 
+                   *valid ? "SUCCESS" : "FAILED");
+            break;
+        }
+        
+        case NAS_AUTHENTICATION_TYPE_EAP: {
+            /*
+             * EAP-AKA': Validate RES in AT_RES attribute
+             * 
+             * EAP-Response/AKA'-Challenge format:
+             *   - Code: 1 (Response)
+             *   - Identifier: matches request
+             *   - Length: variable
+             *   - Type: 50 (AKA')
+             *   - AT_RES attribute containing RES
+             */
+            
+            /* Minimum EAP-AKA' response size */
+            if (response_length < 16) {
+                LOG_ERROR(LOG_CAT_NAME_NAS, "EAP response too short: %zu bytes\n", response_length);
+                *valid = false;
+                break;
+            }
+            
+            /* Parse EAP header */
+            uint8_t code = response[0];
+            uint8_t type = response[4];  /* Type at offset 4 */
+            
+            if (code != 1) {  /* Not a Response */
+                LOG_ERROR(LOG_CAT_NAME_NAS, "Invalid EAP code: %u (expected 1 for Response)\n", code);
+                *valid = false;
+                break;
+            }
+            
+            if (type != 50) {  /* Not AKA' */
+                LOG_ERROR(LOG_CAT_NAME_NAS, "Invalid EAP type: %u (expected 50 for AKA')\n", type);
+                *valid = false;
+                break;
+            }
+            
+            /* Find AT_RES attribute (type=0x03) */
+            size_t offset = 5;  /* Start after EAP header */
+            bool found_res = false;
+            
+            while (offset + 4 <= response_length) {
+                uint8_t attr_type = response[offset];
+                uint8_t attr_len = response[offset + 1] * 4;  /* Length in 4-byte units */
+                
+                if (attr_type == 0x03) {  /* AT_RES */
+                    /* Extract RES value */
+                    uint8_t res_len = response[offset + 2];  /* RES length in bits */
+                    size_t res_bytes = (res_len + 7) / 8;
+                    
+                    if (offset + 4 + res_bytes <= response_length) {
+                        /* Compare with XRES */
+                        if (res_bytes == 16) {
+                            int diff = constant_time_memcmp(&response[offset + 4], vector->xres, 16);
+                            *valid = (diff == 0);
+                            found_res = true;
+                        }
+                    }
+                    break;
+                }
+                
+                offset += attr_len;
+            }
+            
+            if (!found_res) {
+                LOG_ERROR(LOG_CAT_NAME_NAS, "AT_RES attribute not found in EAP response\n");
+                *valid = false;
+            }
+            
+            LOG_INFO(LOG_CAT_NAME_NAS, "EAP-AKA' authentication response validation: %s\n", 
+                   *valid ? "SUCCESS" : "FAILED");
+            break;
+        }
+        
+        default:
+            LOG_ERROR(LOG_CAT_NAME_NAS, "Unknown authentication type: %d\n", nas_ctx->auth_context.auth_type);
+            *valid = false;
+            break;
+    }
+    
+    /* Mark vector as used if validation successful */
+    if (*valid) {
+        vector->used = true;
+        nas_ctx->auth_context.authenticated = true;
+        
+        /* Advance to next vector if available */
+        if (nas_ctx->auth_context.current_vector < nas_ctx->auth_context.num_vectors - 1) {
+            nas_ctx->auth_context.current_vector++;
+        }
+    }
     
     return UESIM_SUCCESS;
 }
 
-uesim_error_t nas_derive_nas_keys(nas_ue_context_t* nas_ctx, const uint8_t* kasme) {
-    if (nas_ctx == NULL || kasme == NULL) {
+/*
+ * KDF (Key Derivation Function) per 3GPP TS 33.220 Annex B.2
+ * Used to derive NAS keys from KAMF/KASME
+ * 
+ * KDF input: FC || P0 || L0 || P1 || L1 || ...
+ * Where:
+ *   FC = Function Code (0x69 for NAS keys per TS 33.501)
+ *   P0 = Algorithm Type Distinguisher
+ *   L0 = Length of P0 (2 bytes, big-endian)
+ *   P1 = Algorithm Identity
+ *   L1 = Length of P1 (2 bytes, big-endian)
+ */
+static void nas_kdf(const uint8_t* key, size_t key_len,
+                    uint8_t fc, const uint8_t* p0, size_t p0_len,
+                    const uint8_t* p1, size_t p1_len,
+                    uint8_t* output, size_t output_len) {
+    /* Build KDF input string S = FC || P0 || L0 || P1 || L1 */
+    uint8_t s[32];
+    size_t s_len = 0;
+    
+    /* FC - Function Code */
+    s[s_len++] = fc;
+    
+    /* P0 and L0 */
+    if (p0 && p0_len > 0) {
+        memcpy(&s[s_len], p0, p0_len);
+        s_len += p0_len;
+        /* L0 - length of P0 in big-endian */
+        s[s_len++] = (p0_len >> 8) & 0xFF;
+        s[s_len++] = p0_len & 0xFF;
+    }
+    
+    /* P1 and L1 */
+    if (p1 && p1_len > 0) {
+        memcpy(&s[s_len], p1, p1_len);
+        s_len += p1_len;
+        /* L1 - length of P1 in big-endian */
+        s[s_len++] = (p1_len >> 8) & 0xFF;
+        s[s_len++] = p1_len & 0xFF;
+    }
+    
+    /* 
+     * HMAC-SHA-256 based KDF
+     * In production, this should use proper HMAC-SHA-256
+     * For simulation, we use a simplified derivation
+     */
+    
+    /* Simple key derivation using XOR and rotation (simulation) */
+    /* In production: HMAC-SHA-256(key, S) */
+    memset(output, 0, output_len);
+    
+    for (size_t i = 0; i < output_len; i++) {
+        /* Mix key with KDF input */
+        output[i] = key[i % key_len];
+        for (size_t j = 0; j < s_len; j++) {
+            output[i] ^= s[j];
+            output[i] = (output[i] << 1) | (output[i] >> 7);  /* Rotate left */
+        }
+        /* Additional mixing */
+        output[i] ^= key[(i + 7) % key_len];
+        output[i] ^= (uint8_t)(fc + i);
+    }
+}
+
+/*
+ * Derive NAS keys from KAMF per 3GPP TS 33.501 Annex A.8
+ * 
+ * KNAS_enc: FC=0x69, P0=0x03 (algorithm type for NAS enc), P1=algorithm ID
+ * KNAS_int: FC=0x69, P0=0x04 (algorithm type for NAS int), P1=algorithm ID
+ */
+uesim_error_t nas_derive_nas_keys(nas_ue_context_t* nas_ctx, const uint8_t* kamf) {
+    if (nas_ctx == NULL || kamf == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // In a real implementation, this would derive NAS keys from KASME
-    // For now, we'll just copy dummy keys
     if (pthread_mutex_lock(&nas_ctx->security_context.security_mutex) != 0) {
         return UESIM_ERROR_THREAD;
     }
     
-    for (int i = 0; i < 16; i++) {
-        nas_ctx->security_context.knas_enc[i] = (uint8_t)(rand() & 0xFF);
-        nas_ctx->security_context.knas_int[i] = (uint8_t)(rand() & 0xFF);
-    }
+    uint8_t knas_enc[16];
+    uint8_t knas_int[16];
+    
+    /* 
+     * Derive KNAS_enc using KDF
+     * FC = 0x69 (Key derivation for NAS)
+     * P0 = 0x03 (Algorithm type distinguisher for NAS encryption)
+     * P1 = Algorithm identity (NEA0=0, NEA1=1, NEA2=2, NEA3=3)
+     */
+    uint8_t fc = 0x69;  /* KDF function code for NAS key derivation */
+    uint8_t p0_enc = 0x03;  /* Algorithm type distinguisher for NAS encryption */
+    uint8_t p1_enc = (uint8_t)nas_ctx->security_context.ciphering_alg;
+    
+    nas_kdf(kamf, 32, fc, &p0_enc, 1, &p1_enc, 1, knas_enc, 16);
+    
+    /*
+     * Derive KNAS_int using KDF
+     * FC = 0x69 (Key derivation for NAS)
+     * P0 = 0x04 (Algorithm type distinguisher for NAS integrity)
+     * P1 = Algorithm identity (NIA0=0, NIA1=1, NIA2=2, NIA3=3)
+     */
+    uint8_t p0_int = 0x04;  /* Algorithm type distinguisher for NAS integrity */
+    uint8_t p1_int = (uint8_t)nas_ctx->security_context.integrity_alg;
+    
+    nas_kdf(kamf, 32, fc, &p0_int, 1, &p1_int, 1, knas_int, 16);
+    
+    /* Store derived keys in security context */
+    memcpy(nas_ctx->security_context.knas_enc, knas_enc, 16);
+    memcpy(nas_ctx->security_context.knas_int, knas_int, 16);
+    
+    /* Clear temporary key buffers */
+    memset(knas_enc, 0, 16);
+    memset(knas_int, 0, 16);
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    printf("NAS: Derived NAS keys\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Derived NAS keys using 3GPP KDF (FC=0x%02x)\n", fc);
+    LOG_INFO(LOG_CAT_NAME_NAS, "     KNAS_enc: alg=NEA%d, type_distinguisher=0x%02x\n", p1_enc, p0_enc);
+    LOG_INFO(LOG_CAT_NAME_NAS, "     KNAS_int: alg=NIA%d, type_distinguisher=0x%02x\n", p1_int, p0_int);
     
     return UESIM_SUCCESS;
+}
+
+/*
+ * Derive NAS keys from KASME (backward compatible wrapper)
+ * KASME is the input key, typically 256 bits (32 bytes)
+ */
+uesim_error_t nas_derive_nas_keys_from_kasme(nas_ue_context_t* nas_ctx, const uint8_t* kasme) {
+    return nas_derive_nas_keys(nas_ctx, kasme);
 }
 
 // NAS Timer Functions
@@ -1709,7 +2414,7 @@ uesim_error_t nas_start_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id, uint
             nas_ctx->t3412_timer = timeout_ms / 1000; // Convert to seconds
             nas_ctx->t3412_running = true;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Started T3412 timer, timeout=%u seconds\n", timeout_ms / 1000);
+            LOG_INFO(LOG_CAT_NAME_NAS, "Started T3412 timer, timeout=%u seconds\n", timeout_ms / 1000);
             break;
             
         case 3422: // T3422 - Registration accept timer
@@ -1719,7 +2424,7 @@ uesim_error_t nas_start_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id, uint
             nas_ctx->t3422_timer = timeout_ms / 1000; // Convert to seconds
             nas_ctx->t3422_running = true;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Started T3422 timer, timeout=%u seconds\n", timeout_ms / 1000);
+            LOG_INFO(LOG_CAT_NAME_NAS, "Started T3422 timer, timeout=%u seconds\n", timeout_ms / 1000);
             break;
             
         case 3450: // T3450 - Registration complete timer
@@ -1729,11 +2434,11 @@ uesim_error_t nas_start_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id, uint
             nas_ctx->t3450_timer = timeout_ms / 1000; // Convert to seconds
             nas_ctx->t3450_running = true;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Started T3450 timer, timeout=%u seconds\n", timeout_ms / 1000);
+            LOG_INFO(LOG_CAT_NAME_NAS, "Started T3450 timer, timeout=%u seconds\n", timeout_ms / 1000);
             break;
             
         default:
-            printf("NAS: Unknown timer ID %u\n", timer_id);
+            LOG_ERROR(LOG_CAT_NAME_NAS, "Unknown timer ID %u\n", timer_id);
             return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1753,7 +2458,7 @@ uesim_error_t nas_stop_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id) {
             }
             nas_ctx->t3412_running = false;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Stopped T3412 timer\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Stopped T3412 timer\n");
             break;
             
         case 3422: // T3422 - Registration accept timer
@@ -1762,7 +2467,7 @@ uesim_error_t nas_stop_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id) {
             }
             nas_ctx->t3422_running = false;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Stopped T3422 timer\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Stopped T3422 timer\n");
             break;
             
         case 3450: // T3450 - Registration complete timer
@@ -1771,11 +2476,11 @@ uesim_error_t nas_stop_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id) {
             }
             nas_ctx->t3450_running = false;
             pthread_mutex_unlock(&nas_ctx->nas_mutex);
-            printf("NAS: Stopped T3450 timer\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "Stopped T3450 timer\n");
             break;
             
         default:
-            printf("NAS: Unknown timer ID %u\n", timer_id);
+            LOG_ERROR(LOG_CAT_NAME_NAS, "Unknown timer ID %u\n", timer_id);
             return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1787,25 +2492,32 @@ uesim_error_t nas_handle_timer_expiry(nas_ue_context_t* nas_ctx, uint16_t timer_
         return UESIM_ERROR_INVALID_PARAM;
     }
     
+    // Update timeout statistics
+    if (pthread_mutex_lock(&nas_ctx->nas_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    nas_ctx->stats.timeout_events++;
+    pthread_mutex_unlock(&nas_ctx->nas_mutex);
+    
     // Handle timer expiry based on timer ID
     switch (timer_id) {
         case 3412: // T3412 - Periodic registration update timer
-            printf("NAS: T3412 timer expired, initiating periodic registration\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "T3412 timer expired, initiating periodic registration\n");
             // In a real implementation, this would trigger periodic registration
             break;
             
         case 3422: // T3422 - Registration accept timer
-            printf("NAS: T3422 timer expired, registration accept timeout\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "T3422 timer expired, registration accept timeout\n");
             // In a real implementation, this would handle registration accept timeout
             break;
             
         case 3450: // T3450 - Registration complete timer
-            printf("NAS: T3450 timer expired, registration complete timeout\n");
+            LOG_INFO(LOG_CAT_NAME_NAS, "T3450 timer expired, registration complete timeout\n");
             // In a real implementation, this would handle registration complete timeout
             break;
             
         default:
-            printf("NAS: Unknown timer ID %u expired\n", timer_id);
+            LOG_ERROR(LOG_CAT_NAME_NAS, "Unknown timer ID %u expired\n", timer_id);
             return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1826,7 +2538,7 @@ uesim_error_t nas_update_ue_identity(nas_ue_context_t* nas_ctx, const nas_ue_ide
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
-    printf("NAS: Updated UE identity\n");
+    LOG_INFO(LOG_CAT_NAME_NAS, "Updated UE identity\n");
     
     return UESIM_SUCCESS;
 }
@@ -1881,9 +2593,49 @@ uesim_error_t nas_update_statistics(nas_ue_context_t* nas_ctx) {
         return UESIM_ERROR_THREAD;
     }
     
-    // In a real implementation, this would update various statistics
-    // For now, we'll just log that statistics were updated
-    printf("NAS: Updated statistics for UE context %u\n", nas_ctx->ue_id);
+    // Update timestamp
+    nas_ctx->stats.last_update_time = (uint32_t)time(NULL);
+    
+    // Count active PDU sessions
+    uint8_t active_sessions = 0;
+    for (int i = 0; i < NAS_MAX_PDU_SESSIONS; i++) {
+        if (nas_ctx->pdu_sessions[i].active) {
+            active_sessions++;
+        }
+    }
+    nas_ctx->stats.active_pdu_sessions = active_sessions;
+    
+    // Check security context status
+    nas_ctx->stats.security_active = nas_ctx->security_context.security_context_valid;
+    
+    // Calculate uptime
+    uint32_t uptime = nas_ctx->stats.last_update_time - nas_ctx->stats.context_start_time;
+    
+    // Log statistics summary
+    LOG_INFO(LOG_CAT_NAME_NAS, "Statistics for UE %u:\n", nas_ctx->ue_id);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  Messages: TX=%llu, RX=%llu\n", 
+           (unsigned long long)nas_ctx->stats.messages_sent,
+           (unsigned long long)nas_ctx->stats.messages_received);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  Registration: requests=%llu, accepts=%llu, rejects=%llu, failures=%llu\n",
+           (unsigned long long)nas_ctx->stats.registration_requests,
+           (unsigned long long)nas_ctx->stats.registration_accepts,
+           (unsigned long long)nas_ctx->stats.registration_rejects,
+           (unsigned long long)nas_ctx->stats.registration_failures);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  Authentication: requests=%llu, success=%llu, failures=%llu\n",
+           (unsigned long long)nas_ctx->stats.authentication_requests,
+           (unsigned long long)nas_ctx->stats.authentication_success,
+           (unsigned long long)nas_ctx->stats.authentication_failures);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  PDU Sessions: active=%u, est_requests=%llu, est_accepts=%llu, release_requests=%llu\n",
+           nas_ctx->stats.active_pdu_sessions,
+           (unsigned long long)nas_ctx->stats.pdu_session_est_requests,
+           (unsigned long long)nas_ctx->stats.pdu_session_est_accepts,
+           (unsigned long long)nas_ctx->stats.pdu_session_release_requests);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  Security: active=%s, integrity_failures=%llu, cipher_failures=%llu\n",
+           nas_ctx->stats.security_active ? "true" : "false",
+           (unsigned long long)nas_ctx->stats.integrity_failures,
+           (unsigned long long)nas_ctx->stats.cipher_failures);
+    LOG_INFO(LOG_CAT_NAME_NAS, "  Timeouts: %llu, Uptime: %u seconds\n",
+           (unsigned long long)nas_ctx->stats.timeout_events, uptime);
     
     pthread_mutex_unlock(&nas_ctx->nas_mutex);
     
@@ -1940,7 +2692,7 @@ uesim_error_t nas_set_registration_config(nas_ue_context_t* nas_ctx,
     }
     
     // Configuration would be used in registration procedures
-    printf("NAS: Set registration configuration, type=%d\n", reg_type);
+    LOG_INFO(LOG_CAT_NAME_NAS, "Set registration configuration, type=%d\n", reg_type);
     
     return UESIM_SUCCESS;
 }
@@ -1961,7 +2713,7 @@ uesim_error_t nas_set_security_config(nas_ue_context_t* nas_ctx,
     
     pthread_mutex_unlock(&nas_ctx->security_context.security_mutex);
     
-    printf("NAS: Set security configuration, ciphering=%d, integrity=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Set security configuration, ciphering=%d, integrity=%d\n", 
            cipher_alg, integrity_alg);
     
     return UESIM_SUCCESS;
@@ -1983,7 +2735,7 @@ uesim_error_t nas_set_pdu_session_config(nas_ue_context_t* nas_ctx, uint8_t pdu_
     
     pthread_mutex_unlock(&nas_ctx->pdu_sessions[pdu_session_id].session_mutex);
     
-    printf("NAS: Set PDU session configuration, session ID=%u, type=%d, SSC mode=%d\n", 
+    LOG_INFO(LOG_CAT_NAME_NAS, "Set PDU session configuration, session ID=%u, type=%d, SSC mode=%d\n", 
            pdu_session_id, session_type, ssc_mode);
     
     return UESIM_SUCCESS;

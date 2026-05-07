@@ -48,7 +48,8 @@ typedef enum {
 // PDCP Direction
 typedef enum {
     PDCP_DIRECTION_UPLINK = 0,    // UE to gNB
-    PDCP_DIRECTION_DOWNLINK = 1   // gNB to UE
+    PDCP_DIRECTION_DOWNLINK = 1,  // gNB to UE
+    PDCP_DIRECTION_BIDIRECTIONAL = 2  // Both directions (for SRBs)
 } pdcp_direction_t;
 
 // PDCP Ciphering Parameters
@@ -73,9 +74,20 @@ typedef struct {
     uint32_t entity_id;
     pdcp_bearer_t bearer_type;
     pdcp_direction_t direction;
-    uint16_t sn_length;           // Sequence Number length (7, 12, or 18 bits)
+    uint16_t sn_length;           // Sequence Number length (5, 12, or 18 bits)
     atomic_uint next_pdcp_sn;     // Next PDCP SN to be assigned
     atomic_uint next_expected_sn; // Next expected SN for reception
+    
+    // Hyper Frame Number (HFN) tracking per 3GPP TS 38.323
+    // COUNT = (PDCP SN + 2^SN_length × HFN) mod 2^32
+    uint32_t tx_hfn;              // TX Hyper Frame Number
+    uint32_t rx_hfn;              // RX Hyper Frame Number
+    uint32_t last_tx_sn;          // Last transmitted SN (for wraparound detection)
+    uint32_t last_rx_sn;          // Last received SN (for wraparound detection)
+    uint32_t sn_mask;             // Mask for extracting SN (e.g., 0xFFF for 12-bit)
+    uint32_t sn_max;             // Maximum SN value (e.g., 4096 for 12-bit)
+    uint32_t hfn_max;             // Maximum HFN value before key refresh needed
+    
     pdcp_security_context_t* security_ctx;
     pthread_mutex_t entity_mutex;
     pthread_cond_t entity_cond;
@@ -172,5 +184,22 @@ uesim_error_t pdcp_decode_header(const uint8_t* header, size_t header_len, pdcp_
 // Utility Functions
 uint32_t pdcp_get_count(pdcp_entity_t* entity);
 uesim_error_t pdcp_increment_count(pdcp_entity_t* entity);
+
+// HFN (Hyper Frame Number) Management Functions
+uint32_t pdcp_get_tx_count(pdcp_entity_t* entity);
+uint32_t pdcp_get_rx_count(pdcp_entity_t* entity, uint32_t received_sn);
+uesim_error_t pdcp_init_sn_params(pdcp_entity_t* entity);
+bool pdcp_detect_sn_wraparound(uint32_t last_sn, uint32_t new_sn, uint32_t sn_max);
+bool pdcp_check_hfn_overflow(pdcp_entity_t* entity);
+
+// Key Refresh Functions (per 3GPP TS 38.323 Section 5.9)
+uesim_error_t pdcp_trigger_key_refresh(pdcp_entity_t* entity);
+uesim_error_t pdcp_perform_key_refresh(pdcp_entity_t* entity, 
+                                       const uint8_t* new_cipher_key,
+                                       const uint8_t* new_integrity_key);
+uesim_error_t pdcp_derive_refreshed_keys(pdcp_entity_t* entity,
+                                         const uint8_t* kamf,
+                                         uint8_t* new_cipher_key,
+                                         uint8_t* new_integrity_key);
 
 #endif // PDCP_H

@@ -1,6 +1,6 @@
 /*
  * 5G UE Simulation Application
- * Command Line Interface header
+ * Command Line Interface Header
  */
 
 #ifndef CLI_H
@@ -8,7 +8,7 @@
 
 #include "../uesim.h"
 
-// CLI command types
+/* Legacy command types (for backward compatibility) */
 typedef enum {
     CLI_COMMAND_START = 0,
     CLI_COMMAND_STOP = 1,
@@ -21,19 +21,14 @@ typedef enum {
     CLI_COMMAND_SET = 8,
     CLI_COMMAND_SAVE = 9,
     CLI_COMMAND_LOAD = 10,
+    CLI_COMMAND_QOS = 11,
+    CLI_COMMAND_SESSION = 12,
+    CLI_COMMAND_LOADTEST = 13,
+    CLI_COMMAND_GNB = 14,
     CLI_COMMAND_MAX
 } cli_command_type_t;
 
-// CLI scenario types
-typedef enum {
-    CLI_SCENARIO_REGISTRATION = 0,
-    CLI_SCENARIO_ESTABLISHMENT = 1,
-    CLI_SCENARIO_REESTABLISHMENT = 2,
-    CLI_SCENARIO_HANDOVER = 3,
-    CLI_SCENARIO_MAX
-} cli_scenario_type_t;
-
-// CLI command structure
+/* Legacy CLI command structure */
 typedef struct {
     cli_command_type_t command_type;
     char* arguments;
@@ -41,29 +36,16 @@ typedef struct {
     char** arg_values;
 } cli_command_t;
 
-// Function prototypes
+/* Function prototypes */
 uesim_error_t cli_init(void);
 void cli_cleanup(void);
 uesim_error_t cli_process_command(const char* input);
 uesim_error_t cli_execute_command(cli_command_t* command);
-void cli_print_help(void);
-void cli_print_status(void);
+void cli_print_main_help(void);
+void cli_print_system_status(void);
 
-// Command handlers
-uesim_error_t cli_handle_start(cli_command_t* command);
-uesim_error_t cli_handle_stop(cli_command_t* command);
-uesim_error_t cli_handle_status(cli_command_t* command);
-uesim_error_t cli_handle_config(cli_command_t* command);
-uesim_error_t cli_handle_scenario(cli_command_t* command);
-uesim_error_t cli_handle_help(cli_command_t* command);
-uesim_error_t cli_handle_exit(cli_command_t* command);
-uesim_error_t cli_handle_show(cli_command_t* command);
-uesim_error_t cli_handle_set(cli_command_t* command);
-uesim_error_t cli_handle_save(cli_command_t* command);
-uesim_error_t cli_handle_load(cli_command_t* command);
-
-// Interactive mode
+/* Interactive mode */
 uesim_error_t cli_start_interactive_mode(void);
 void cli_stop_interactive_mode(void);
 
-#endif // CLI_H
+#endif /* CLI_H */

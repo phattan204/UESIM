@@ -40,7 +40,8 @@ typedef enum {
 // RLC Direction
 typedef enum {
     RLC_DIRECTION_UPLINK = 0,    // UE to gNB
-    RLC_DIRECTION_DOWNLINK = 1   // gNB to UE
+    RLC_DIRECTION_DOWNLINK = 1,  // gNB to UE
+    RLC_DIRECTION_BIDIRECTIONAL = 2  // Both directions (for SRBs)
 } rlc_direction_t;
 
 // RLC Status
@@ -131,8 +132,8 @@ typedef struct {
 typedef struct {
     rlc_am_tx_window_t tx_window; // Transmit window
     rlc_am_rx_window_t rx_window; // Receive window
-    rlc_sdu_t* tx_buffer;        // Transmit buffer
-    rlc_sdu_t* rx_buffer;        // Receive buffer
+    rlc_sdu_t* tx_buffer;        // Transmit SDU buffer
+    rlc_pdu_t* rx_buffer;        // Receive PDU buffer (for reassembly)
     uint32_t poll_sn;            // Poll sequence number
     uint32_t poll_pdu_counter;   // Poll PDU counter
     uint32_t poll_byte_counter;  // Poll byte counter
@@ -232,6 +233,16 @@ uesim_error_t rlc_am_process_status_pdu(rlc_entity_t* entity, const uint8_t* sta
                                        size_t status_length);
 uesim_error_t rlc_am_generate_status_pdu(rlc_entity_t* entity, uint8_t** status_data,
                                         size_t* status_length);
+
+// RLC AM Window Management Functions
+uesim_error_t rlc_am_init_tx_window(rlc_am_tx_window_t* win, uint16_t window_size);
+uesim_error_t rlc_am_init_rx_window(rlc_am_rx_window_t* win, uint16_t window_size);
+uesim_error_t rlc_am_destroy_tx_window(rlc_am_tx_window_t* win);
+uesim_error_t rlc_am_destroy_rx_window(rlc_am_rx_window_t* win);
+uesim_error_t rlc_am_tx_window_insert(rlc_am_tx_window_t* win, rlc_pdu_t* pdu, uint8_t sn_length);
+uesim_error_t rlc_am_rx_window_insert(rlc_am_rx_window_t* win, rlc_pdu_t* pdu, uint8_t sn_length);
+rlc_pdu_t* rlc_am_tx_window_get(rlc_am_tx_window_t* win, uint16_t sn);
+rlc_pdu_t* rlc_am_rx_window_get(rlc_am_rx_window_t* win, uint16_t sn);
 
 // RLC Timer Functions
 uesim_error_t rlc_start_timer(rlc_entity_t* entity, uint16_t timer_id, uint32_t timeout_ms);

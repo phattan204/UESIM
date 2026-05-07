@@ -8,6 +8,7 @@
 
 #include "../uesim.h"
 #include "../protocol/mac.h"
+#include "network_slicing.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -299,26 +300,43 @@ typedef struct {
 typedef struct {
     uint64_t registration_requests;  // Registration requests sent
     uint64_t registration_accepts;   // Registration accepts received
+    uint64_t registration_rejects;   // Registration rejects received
     uint64_t authentication_requests; // Authentication requests received
     uint64_t authentication_responses; // Authentication responses sent
     uint64_t security_mode_commands;  // Security mode commands received
     uint64_t security_mode_completes; // Security mode completes sent
     uint64_t pdu_session_est_requests; // PDU session establishment requests
     uint64_t pdu_session_est_accepts;  // PDU session establishment accepts
+    uint64_t pdu_session_release_requests; // PDU session release requests
     uint64_t messages_sent;           // Total messages sent
     uint64_t messages_received;       // Total messages received
     uint64_t authentication_success;  // Successful authentications
     uint64_t authentication_failures; // Failed authentications
+    
+    // Derived statistics (calculated in nas_update_statistics)
+    uint32_t last_update_time;        // Last update timestamp (Unix time)
+    uint32_t context_start_time;      // Context creation timestamp
+    uint8_t active_pdu_sessions;      // Current active PDU sessions
+    bool security_active;             // Security context active
+    
+    // Error statistics
+    uint64_t integrity_failures;      // Integrity verification failures
+    uint64_t cipher_failures;         // Ciphering failures
+    uint64_t timeout_events;          // Timer expiry events
+    uint64_t registration_failures;  // Registration failures
 } nas_stats_t;
 
 // NAS UE Context
-typedef struct {
+typedef struct nas_ue_context_t {
     uint32_t ue_id;                // UE identifier
     nas_5gmm_state_t mm_state;     // 5GMM state
     nas_ue_identity_t identity;    // UE identity
     nas_security_context_t security_context;  // Security context
     nas_auth_context_t auth_context;  // Authentication context
     nas_pdu_session_t pdu_sessions[NAS_MAX_PDU_SESSIONS];  // PDU sessions
+    nas_pdu_session_slice_t pdu_session_slices[NAS_MAX_PDU_SESSIONS];  // PDU session slice associations
+    nas_network_slicing_t slicing; // Network slicing context
+    nas_slice_subscription_t slice_subscription;  // Slice subscription
     uint8_t num_active_sessions;   // Number of active sessions
     uint32_t t3412_timer;          // T3412 timer value
     uint32_t t3422_timer;          // T3422 timer value

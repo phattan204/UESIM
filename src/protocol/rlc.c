@@ -5,6 +5,7 @@
 
 #include "rlc.h"
 #include "../core/memory.h"
+#include "../utils/log.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -17,7 +18,38 @@ uesim_error_t rlc_init(ue_context_t* ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("RLC initialized for UE %u\n", ue_ctx->ue_id);
+    /* Create default RLC entities for SRB1 and SRB2 (AM mode for signaling) */
+    rlc_entity_t* srb1_entity = NULL;
+    uesim_error_t result = rlc_create_entity(ue_ctx, RLC_BEARER_SRB1, RLC_DIRECTION_BIDIRECTIONAL,
+                                             RLC_MODE_AM, NULL, &srb1_entity);
+    if (result != UESIM_SUCCESS) {
+        LOG_ERROR(LOG_CAT_NAME_RLC, "Failed to create SRB1 entity for UE %u, error=%d", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    /* Store SRB1 RLC entity */
+    result = ue_set_rlc_entity(ue_ctx, RLC_BEARER_SRB1, srb1_entity);
+    if (result != UESIM_SUCCESS) {
+        rlc_destroy_entity(ue_ctx, srb1_entity);
+        LOG_ERROR(LOG_CAT_NAME_RLC, "Failed to store SRB1 entity for UE %u, error=%d", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    /* Create SRB2 entity */
+    rlc_entity_t* srb2_entity = NULL;
+    result = rlc_create_entity(ue_ctx, RLC_BEARER_SRB2, RLC_DIRECTION_BIDIRECTIONAL,
+                               RLC_MODE_AM, NULL, &srb2_entity);
+    if (result != UESIM_SUCCESS) {
+        LOG_WARN(LOG_CAT_NAME_RLC, "Failed to create SRB2 entity for UE %u, error=%d", ue_ctx->ue_id, result);
+        /* Continue without SRB2 - SRB1 is sufficient for basic operation */
+    } else {
+        result = ue_set_rlc_entity(ue_ctx, RLC_BEARER_SRB2, srb2_entity);
+        if (result != UESIM_SUCCESS) {
+            rlc_destroy_entity(ue_ctx, srb2_entity);
+        }
+    }
+    
+    LOG_INFO(LOG_CAT_NAME_RLC, "Initialized for UE %u (SRB1 entity_id=%u)", ue_ctx->ue_id, srb1_entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -26,7 +58,18 @@ void rlc_cleanup(ue_context_t* ue_ctx) {
         return;
     }
     
-    printf("RLC cleanup completed for UE %u\n", ue_ctx->ue_id);
+    /* Cleanup all RLC entities */
+    for (int i = 0; i < UESIM_MAX_RLC_ENTITIES; i++) {
+        rlc_entity_t* rlc_entity = ue_get_rlc_entity(ue_ctx, i);
+        if (rlc_entity != NULL) {
+            uint32_t entity_id = rlc_entity->entity_id;
+            rlc_destroy_entity(ue_ctx, rlc_entity);
+            ue_remove_rlc_entity(ue_ctx, i);
+            LOG_DEBUG(LOG_CAT_NAME_RLC, "Destroyed entity %u for bearer %d", entity_id, i);
+        }
+    }
+    
+    LOG_INFO(LOG_CAT_NAME_RLC, "Cleanup completed for UE %u", ue_ctx->ue_id);
 }
 
 uesim_error_t rlc_create_entity(ue_context_t* ue_ctx, rlc_bearer_t bearer,
@@ -139,7 +182,7 @@ uesim_error_t rlc_create_entity(ue_context_t* ue_ctx, rlc_bearer_t bearer,
     rlc_entity->status = RLC_STATUS_CONFIGURED;
     *entity = rlc_entity;
     
-    printf("RLC entity created: ID=%u, Bearer=%d, Direction=%d, Mode=%d\n",
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity created: ID=%u, Bearer=%d, Direction=%d, Mode=%d",
            rlc_entity->entity_id, bearer, direction, mode);
     
     return UESIM_SUCCESS;
@@ -199,7 +242,7 @@ uesim_error_t rlc_configure_entity(rlc_entity_t* entity, const rlc_config_t* con
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("RLC entity %u configured with mode %d\n", entity->entity_id, config->mode);
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity %u configured with mode %d", entity->entity_id, config->mode);
     return UESIM_SUCCESS;
 }
 
@@ -217,7 +260,7 @@ uesim_error_t rlc_activate_entity(rlc_entity_t* entity) {
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("RLC entity %u activated\n", entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity %u activated", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -235,7 +278,7 @@ uesim_error_t rlc_deactivate_entity(rlc_entity_t* entity) {
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("RLC entity %u deactivated\n", entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity %u deactivated", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -253,7 +296,7 @@ uesim_error_t rlc_suspend_entity(rlc_entity_t* entity) {
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("RLC entity %u suspended\n", entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity %u suspended", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -275,7 +318,7 @@ uesim_error_t rlc_resume_entity(rlc_entity_t* entity) {
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("RLC entity %u resumed\n", entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_RLC, "Entity %u resumed", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -394,7 +437,7 @@ uesim_error_t rlc_tm_process_tx_data(rlc_entity_t* entity, const void* sdu_data,
     // Set PDU in list
     *pdu_list = pdu;
     
-    printf("RLC TM: Processed SDU to PDU, length=%zu\n", sdu_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "TM: Processed SDU to PDU, length=%zu", sdu_length);
     return UESIM_SUCCESS;
 }
 
@@ -417,7 +460,7 @@ uesim_error_t rlc_tm_process_rx_data(rlc_entity_t* entity, const rlc_pdu_t* pdu_
     memcpy(*sdu_data, pdu_list->data, pdu_list->data_length);
     *sdu_length = pdu_list->data_length;
     
-    printf("RLC TM: Processed PDU to SDU, length=%zu\n", pdu_list->data_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "TM: Processed PDU to SDU, length=%zu", pdu_list->data_length);
     return UESIM_SUCCESS;
 }
 
@@ -459,7 +502,7 @@ uesim_error_t rlc_tm_receive_pdu(rlc_entity_t* entity, const rlc_pdu_t* pdu) {
     
     pthread_mutex_unlock(&entity->entity.tm.entity_mutex);
     
-    printf("RLC TM: Received PDU queued as SDU, length=%zu\n", pdu->data_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "TM: Received PDU queued as SDU, length=%zu", pdu->data_length);
     return UESIM_SUCCESS;
 }
 
@@ -523,7 +566,7 @@ uesim_error_t rlc_um_process_tx_data(rlc_entity_t* entity, const void* sdu_data,
     
     *pdu_list = head_pdu;
     
-    printf("RLC UM: Processed SDU to %zu PDUs, total length=%zu\n", num_pdus, sdu_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "UM: Processed SDU to %zu PDUs, total length=%zu", num_pdus, sdu_length);
     return UESIM_SUCCESS;
 }
 
@@ -564,7 +607,7 @@ uesim_error_t rlc_um_process_rx_data(rlc_entity_t* entity, const rlc_pdu_t* pdu_
     
     *sdu_length = total_length;
     
-    printf("RLC UM: Processed PDU list to SDU, length=%zu\n", total_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "UM: Processed PDU list to SDU, length=%zu", total_length);
     return UESIM_SUCCESS;
 }
 
@@ -610,7 +653,7 @@ uesim_error_t rlc_um_receive_pdu(rlc_entity_t* entity, const rlc_pdu_t* pdu) {
     
     pthread_mutex_unlock(&entity->entity.um.entity_mutex);
     
-    printf("RLC UM: Received PDU queued, SN=%u, length=%zu\n", pdu->sn, pdu->data_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "UM: Received PDU queued, SN=%u, length=%zu", pdu->sn, pdu->data_length);
     return UESIM_SUCCESS;
 }
 
@@ -674,7 +717,7 @@ uesim_error_t rlc_am_process_tx_data(rlc_entity_t* entity, const void* sdu_data,
     
     *pdu_list = head_pdu;
     
-    printf("RLC AM: Processed SDU to %zu PDUs, total length=%zu\n", num_pdus, sdu_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: Processed SDU to %zu PDUs, total length=%zu", num_pdus, sdu_length);
     return UESIM_SUCCESS;
 }
 
@@ -715,7 +758,7 @@ uesim_error_t rlc_am_process_rx_data(rlc_entity_t* entity, const rlc_pdu_t* pdu_
     
     *sdu_length = total_length;
     
-    printf("RLC AM: Processed PDU list to SDU, length=%zu\n", total_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: Processed PDU list to SDU, length=%zu", total_length);
     return UESIM_SUCCESS;
 }
 
@@ -768,7 +811,7 @@ uesim_error_t rlc_am_receive_pdu(rlc_entity_t* entity, const rlc_pdu_t* pdu) {
     
     pthread_mutex_unlock(&entity->entity.am.entity_mutex);
     
-    printf("RLC AM: Received data PDU, SN=%u, length=%zu\n", pdu->sn, pdu->data_length);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: Received data PDU, SN=%u, length=%zu", pdu->sn, pdu->data_length);
     return UESIM_SUCCESS;
 }
 
@@ -994,7 +1037,7 @@ uesim_error_t rlc_am_poll_entity(rlc_entity_t* entity) {
     pthread_mutex_unlock(&entity->entity.am.entity_mutex);
     
     if (should_poll) {
-        printf("RLC AM: Polling triggered for entity %u\n", entity->entity_id);
+        LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: Polling triggered for entity %u", entity->entity_id);
         // Generate and send status PDU
         return rlc_am_generate_status_pdu(entity, NULL, NULL);
     }
@@ -1012,18 +1055,101 @@ uesim_error_t rlc_am_process_status_pdu(rlc_entity_t* entity, const uint8_t* sta
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Process received status PDU
-    printf("RLC AM: Processing status PDU, length=%zu\n", status_length);
+    rlc_am_entity_t* am = &entity->entity.am;
     
-    // Parse status PDU and handle acknowledgments
-    // This would involve updating transmit window and retransmitting unacknowledged PDUs
+    if (pthread_mutex_lock(&am->tx_window.window_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    // Parse status PDU
+    // Format: CPT (3 bits) | ACK_SN (12/18 bits) | E1 (1 bit) | [NACK_SN | SOstart | SOend]...
+    size_t bit_offset = 0;
+    
+    // Read CPT (Control PDU Type) - should be 0 for STATUS
+    uint8_t cpt = (status_data[0] >> 5) & 0x07;
+    if (cpt != 0) {
+        LOG_ERROR(LOG_CAT_NAME_RLC, "AM: Invalid STATUS PDU CPT=%u", cpt);
+        pthread_mutex_unlock(&am->tx_window.window_mutex);
+        return UESIM_ERROR_PROTOCOL;
+    }
+    
+    // Read ACK_SN (acknowledged sequence number)
+    uint16_t ack_sn;
+    if (entity->config.config.am.sn_length == 12) {
+        ack_sn = ((status_data[0] & 0x1F) << 7) | ((status_data[1] >> 1) & 0x7F);
+        bit_offset = 16;
+    } else { // 18-bit SN
+        ack_sn = ((status_data[0] & 0x1F) << 13) | (status_data[1] << 5) | 
+                 ((status_data[2] >> 3) & 0x1F);
+        bit_offset = 24;
+    }
+    
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: STATUS PDU received, ACK_SN=%u", ack_sn);
+    
+    // Update VT(A) - acknowledged pointer
+    rlc_am_tx_window_t* tx_win = &am->tx_window;
+    uint16_t sn_mask = (entity->config.config.am.sn_length == 12) ? 0xFFF : 0x3FFFF;
+    
+    // Remove acknowledged PDUs from transmit window
+    while (tx_win->vt_a != ack_sn) {
+        uint16_t idx = tx_win->vt_a % tx_win->window_size;
+        if (tx_win->tx_window[idx] != NULL) {
+            rlc_destroy_pdu(entity, tx_win->tx_window[idx]);
+            tx_win->tx_window[idx] = NULL;
+        }
+        tx_win->vt_a = (tx_win->vt_a + 1) & sn_mask;
+    }
+    
+    // Check for E1 flag (NACK list present)
+    bool e1 = (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 1;
+    bit_offset++;
+    
+    // Process NACK list
+    while (e1 && (bit_offset / 8) < status_length) {
+        // Read NACK_SN
+        uint16_t nack_sn;
+        if (entity->config.config.am.sn_length == 12) {
+            nack_sn = ((status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 0x1F) << 7;
+            bit_offset += 5;
+            nack_sn |= (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 0x7F;
+            bit_offset += 7;
+        } else {
+            nack_sn = ((status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 0x1F) << 13;
+            bit_offset += 5;
+            nack_sn |= (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) << 5;
+            bit_offset += 8;
+            nack_sn |= (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 0x1F;
+            bit_offset += 5;
+        }
+        
+        // Mark PDU for retransmission
+        uint16_t idx = nack_sn % tx_win->window_size;
+        if (tx_win->tx_window[idx] != NULL) {
+            tx_win->tx_window[idx]->is_segment = true; // Mark for retransmission
+            LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: NACK received for SN=%u, marking for retransmission", nack_sn);
+        }
+        
+        // Read E1 (more NACKs) and E2 (has SOstart/SOend)
+        e1 = (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 1;
+        bit_offset++;
+        bool e2 = (status_data[bit_offset / 8] >> (7 - (bit_offset % 8))) & 1;
+        bit_offset++;
+        
+        // Skip SOstart/SOend if present
+        if (e2) {
+            bit_offset += 32; // SOstart (16 bits) + SOend (16 bits)
+        }
+    }
+    
+    pthread_mutex_unlock(&am->tx_window.window_mutex);
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: STATUS PDU processed, new VT(A)=%u", tx_win->vt_a);
     
     return UESIM_SUCCESS;
 }
 
 uesim_error_t rlc_am_generate_status_pdu(rlc_entity_t* entity, uint8_t** status_data,
                                         size_t* status_length) {
-    if (entity == NULL) {
+    if (entity == NULL || status_data == NULL || status_length == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
@@ -1031,13 +1157,277 @@ uesim_error_t rlc_am_generate_status_pdu(rlc_entity_t* entity, uint8_t** status_
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    // Generate status PDU with current receive state
-    printf("RLC AM: Generating status PDU for entity %u\n", entity->entity_id);
+    rlc_am_entity_t* am = &entity->entity.am;
     
-    // In a real implementation, this would create a proper status PDU
-    // with acknowledgment information and bitmap of received PDUs
+    if (pthread_mutex_lock(&am->rx_window.window_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    rlc_am_rx_window_t* rx_win = &am->rx_window;
+    
+    // Allocate status PDU buffer (max 128 bytes for NACK list)
+    uint8_t* pdu = (uint8_t*)uesim_malloc(128);
+    if (pdu == NULL) {
+        pthread_mutex_unlock(&am->rx_window.window_mutex);
+        return UESIM_ERROR_MEMORY;
+    }
+    memset(pdu, 0, 128);
+    
+    size_t bit_offset = 0;
+    uint16_t sn_mask = (entity->config.config.am.sn_length == 12) ? 0xFFF : 0x3FFFF;
+    
+    // CPT = 0 (STATUS PDU), D/C = 1 (Control PDU)
+    pdu[0] = 0x80; // D/C=1, CPT=0
+    bit_offset = 3;
+    
+    // Write ACK_SN (highest successfully received SN + 1)
+    uint16_t ack_sn = rx_win->vr_r;
+    if (entity->config.config.am.sn_length == 12) {
+        pdu[0] |= (ack_sn >> 7) & 0x1F;
+        pdu[1] = (ack_sn & 0x7F) << 1;
+        bit_offset = 16;
+    } else { // 18-bit SN
+        pdu[0] |= (ack_sn >> 13) & 0x1F;
+        pdu[1] = (ack_sn >> 5) & 0xFF;
+        pdu[2] = (ack_sn & 0x1F) << 3;
+        bit_offset = 24;
+    }
+    
+    // Build NACK list for missing PDUs
+    uint16_t nack_count = 0;
+    uint16_t sn = rx_win->vr_r;
+    uint16_t end_sn = rx_win->vr_h;
+    
+    while (sn != end_sn && nack_count < 16) {
+        uint16_t idx = sn % rx_win->window_size;
+        
+        // Check if PDU is missing
+        if (rx_win->rx_window[idx] == NULL) {
+            // Set E1 flag (more NACKs follow)
+            pdu[bit_offset / 8] |= (1 << (7 - (bit_offset % 8)));
+            bit_offset++;
+            
+            // Write NACK_SN
+            if (entity->config.config.am.sn_length == 12) {
+                pdu[bit_offset / 8] |= (sn >> 7) & 0x1F;
+                bit_offset += 5;
+                pdu[bit_offset / 8] |= ((sn & 0x7F) << (7 - (bit_offset % 8)));
+                bit_offset += 7;
+            } else {
+                pdu[bit_offset / 8] |= (sn >> 13) & 0x1F;
+                bit_offset += 5;
+                pdu[bit_offset / 8] |= (sn >> 5) & 0xFF;
+                bit_offset += 8;
+                pdu[bit_offset / 8] |= ((sn & 0x1F) << (7 - (bit_offset % 8)));
+                bit_offset += 5;
+            }
+            
+            // E2 = 0 (no SOstart/SOend for full PDU NACK)
+            bit_offset++;
+            
+            nack_count++;
+        }
+        
+        sn = (sn + 1) & sn_mask;
+    }
+    
+    // Clear E1 flag after last NACK
+    pdu[bit_offset / 8] &= ~(1 << (7 - (bit_offset % 8)));
+    
+    *status_data = pdu;
+    *status_length = (bit_offset + 7) / 8;
+    
+    pthread_mutex_unlock(&am->rx_window.window_mutex);
+    
+    LOG_DEBUG(LOG_CAT_NAME_RLC, "AM: Generated STATUS PDU, ACK_SN=%u, NACKs=%u, length=%zu",
+           ack_sn, nack_count, *status_length);
     
     return UESIM_SUCCESS;
+}
+
+// RLC AM Window Management Functions
+
+uesim_error_t rlc_am_init_tx_window(rlc_am_tx_window_t* win, uint16_t window_size) {
+    if (win == NULL || window_size == 0) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    win->tx_window = (rlc_pdu_t**)uesim_calloc(window_size, sizeof(rlc_pdu_t*));
+    if (win->tx_window == NULL) {
+        return UESIM_ERROR_MEMORY;
+    }
+    
+    win->window_size = window_size;
+    win->vt_a = 0;    // VT(A) - acknowledged
+    win->vt_ms = window_size;  // VT(MS) - max send
+    win->vt_s = 0;    // VT(S) - next to send
+    
+    if (pthread_mutex_init(&win->window_mutex, NULL) != 0) {
+        uesim_free(win->tx_window);
+        return UESIM_ERROR_THREAD;
+    }
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t rlc_am_init_rx_window(rlc_am_rx_window_t* win, uint16_t window_size) {
+    if (win == NULL || window_size == 0) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    win->rx_window = (rlc_pdu_t**)uesim_calloc(window_size, sizeof(rlc_pdu_t*));
+    if (win->rx_window == NULL) {
+        return UESIM_ERROR_MEMORY;
+    }
+    
+    win->window_size = window_size;
+    win->vr_r = 0;   // VR(R) - last received
+    win->vr_mr = window_size;  // VR(MR) - max receive
+    win->vr_x = 0;   // VR(X) - t-reassembly trigger
+    win->vr_ms = 0;  // VR(MS) - max status
+    win->vr_h = 0;   // VR(H) - highest received
+    
+    if (pthread_mutex_init(&win->window_mutex, NULL) != 0) {
+        uesim_free(win->rx_window);
+        return UESIM_ERROR_THREAD;
+    }
+    
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t rlc_am_destroy_tx_window(rlc_am_tx_window_t* win) {
+    if (win == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (win->tx_window != NULL) {
+        for (uint16_t i = 0; i < win->window_size; i++) {
+            if (win->tx_window[i] != NULL) {
+                rlc_pdu_t* pdu = win->tx_window[i];
+                while (pdu != NULL) {
+                    rlc_pdu_t* next = pdu->next;
+                    if (pdu->data) uesim_free(pdu->data);
+                    uesim_free(pdu);
+                    pdu = next;
+                }
+            }
+        }
+        uesim_free(win->tx_window);
+    }
+    
+    pthread_mutex_destroy(&win->window_mutex);
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t rlc_am_destroy_rx_window(rlc_am_rx_window_t* win) {
+    if (win == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (win->rx_window != NULL) {
+        for (uint16_t i = 0; i < win->window_size; i++) {
+            if (win->rx_window[i] != NULL) {
+                rlc_pdu_t* pdu = win->rx_window[i];
+                while (pdu != NULL) {
+                    rlc_pdu_t* next = pdu->next;
+                    if (pdu->data) uesim_free(pdu->data);
+                    uesim_free(pdu);
+                    pdu = next;
+                }
+            }
+        }
+        uesim_free(win->rx_window);
+    }
+    
+    pthread_mutex_destroy(&win->window_mutex);
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t rlc_am_tx_window_insert(rlc_am_tx_window_t* win, rlc_pdu_t* pdu, uint8_t sn_length) {
+    if (win == NULL || pdu == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (pthread_mutex_lock(&win->window_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    uint16_t sn_mask = (sn_length == 12) ? 0xFFF : 0x3FFFF;
+    uint16_t idx = pdu->sn % win->window_size;
+    
+    // Check if SN is within window
+    int16_t diff = (pdu->sn - win->vt_a) & sn_mask;
+    if (diff >= win->window_size) {
+        pthread_mutex_unlock(&win->window_mutex);
+        return UESIM_ERROR_CAPACITY;
+    }
+    
+    // Insert PDU into window
+    pdu->next = win->tx_window[idx];
+    win->tx_window[idx] = pdu;
+    
+    // Update VT(S)
+    win->vt_s = (pdu->sn + 1) & sn_mask;
+    
+    pthread_mutex_unlock(&win->window_mutex);
+    return UESIM_SUCCESS;
+}
+
+rlc_pdu_t* rlc_am_tx_window_get(rlc_am_tx_window_t* win, uint16_t sn) {
+    if (win == NULL || win->tx_window == NULL) {
+        return NULL;
+    }
+    
+    uint16_t idx = sn % win->window_size;
+    return win->tx_window[idx];
+}
+
+uesim_error_t rlc_am_rx_window_insert(rlc_am_rx_window_t* win, rlc_pdu_t* pdu, uint8_t sn_length) {
+    if (win == NULL || pdu == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (pthread_mutex_lock(&win->window_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    uint16_t sn_mask = (sn_length == 12) ? 0xFFF : 0x3FFFF;
+    uint16_t idx = pdu->sn % win->window_size;
+    
+    // Check if SN is within window
+    int16_t diff = (pdu->sn - win->vr_r) & sn_mask;
+    if (diff >= win->window_size) {
+        pthread_mutex_unlock(&win->window_mutex);
+        return UESIM_ERROR_CAPACITY;
+    }
+    
+    // Insert PDU into window
+    pdu->next = win->rx_window[idx];
+    win->rx_window[idx] = pdu;
+    
+    // Update VR(H) if this is highest SN received
+    diff = (pdu->sn - win->vr_h) & sn_mask;
+    if (diff > 0 && diff < win->window_size) {
+        win->vr_h = pdu->sn;
+    }
+    
+    // Try to advance VR(R)
+    while (win->rx_window[win->vr_r % win->window_size] != NULL) {
+        win->vr_r = (win->vr_r + 1) & sn_mask;
+        win->vr_mr = (win->vr_r + win->window_size) & sn_mask;
+    }
+    
+    pthread_mutex_unlock(&win->window_mutex);
+    return UESIM_SUCCESS;
+}
+
+rlc_pdu_t* rlc_am_rx_window_get(rlc_am_rx_window_t* win, uint16_t sn) {
+    if (win == NULL || win->rx_window == NULL) {
+        return NULL;
+    }
+    
+    uint16_t idx = sn % win->window_size;
+    return win->rx_window[idx];
 }
 
 // RLC Utility Functions

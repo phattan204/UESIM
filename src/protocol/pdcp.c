@@ -27,7 +27,43 @@ uesim_error_t pdcp_init(ue_context_t* ue_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("PDCP initialized for UE %u\n", ue_ctx->ue_id);
+    /* Create PDCP entities for SRB1 and SRB2 */
+    pdcp_entity_t* srb1_entity = NULL;
+    uesim_error_t result = pdcp_create_entity(ue_ctx, PDCP_BEARER_SRB1, 
+                                              PDCP_DIRECTION_BIDIRECTIONAL, &srb1_entity);
+    if (result != UESIM_SUCCESS) {
+        printf("PDCP: Failed to create SRB1 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    /* Store SRB1 PDCP entity */
+    result = ue_set_pdcp_entity(ue_ctx, PDCP_BEARER_SRB1, srb1_entity);
+    if (result != UESIM_SUCCESS) {
+        pdcp_destroy_entity(ue_ctx, srb1_entity);
+        printf("PDCP: Failed to store SRB1 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        return result;
+    }
+    
+    /* Activate SRB1 entity */
+    pdcp_activate_entity(srb1_entity);
+    
+    /* Create SRB2 entity */
+    pdcp_entity_t* srb2_entity = NULL;
+    result = pdcp_create_entity(ue_ctx, PDCP_BEARER_SRB2, 
+                               PDCP_DIRECTION_BIDIRECTIONAL, &srb2_entity);
+    if (result != UESIM_SUCCESS) {
+        printf("PDCP: Failed to create SRB2 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        /* Continue without SRB2 - SRB1 is sufficient */
+    } else {
+        result = ue_set_pdcp_entity(ue_ctx, PDCP_BEARER_SRB2, srb2_entity);
+        if (result != UESIM_SUCCESS) {
+            pdcp_destroy_entity(ue_ctx, srb2_entity);
+        } else {
+            pdcp_activate_entity(srb2_entity);
+        }
+    }
+    
+    printf("PDCP: Initialized for UE %u (SRB1 entity_id=%u)\n", ue_ctx->ue_id, srb1_entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -36,7 +72,18 @@ void pdcp_cleanup(ue_context_t* ue_ctx) {
         return;
     }
     
-    printf("PDCP cleanup completed for UE %u\n", ue_ctx->ue_id);
+    /* Cleanup all PDCP entities */
+    for (int i = 0; i < UESIM_MAX_PDCP_ENTITIES; i++) {
+        pdcp_entity_t* pdcp_entity = ue_get_pdcp_entity(ue_ctx, i);
+        if (pdcp_entity != NULL) {
+            uint32_t entity_id = pdcp_entity->entity_id;
+            pdcp_destroy_entity(ue_ctx, pdcp_entity);
+            ue_remove_pdcp_entity(ue_ctx, i);
+            printf("PDCP: Destroyed entity %u for bearer %d\n", entity_id, i);
+        }
+    }
+    
+    printf("PDCP: Cleanup completed for UE %u\n", ue_ctx->ue_id);
 }
 
 uesim_error_t pdcp_create_entity(ue_context_t* ue_ctx, pdcp_bearer_t bearer,
@@ -71,6 +118,9 @@ uesim_error_t pdcp_create_entity(ue_context_t* ue_ctx, pdcp_bearer_t bearer,
     // Initialize atomic counters
     atomic_init(&pdcp_entity->next_pdcp_sn, 0);
     atomic_init(&pdcp_entity->next_expected_sn, 0);
+    
+    // Initialize SN parameters (mask, max, HFN max)
+    pdcp_init_sn_params(pdcp_entity);
     
     // Initialize mutex and condition variable
     if (pthread_mutex_init(&pdcp_entity->entity_mutex, NULL) != 0) {
@@ -171,8 +221,25 @@ uesim_error_t pdcp_process_tx_data(pdcp_entity_t* entity, const void* sdu_data,
     memcpy(pdcp_pdu->data, sdu_data, sdu_length);
     pdcp_pdu->data_length = sdu_length;
     
-    // Assign sequence number
-    pdcp_pdu->sn = atomic_fetch_add(&entity->next_pdcp_sn, 1);
+    // Get current SN and check for wraparound
+    uint32_t current_sn = atomic_fetch_add(&entity->next_pdcp_sn, 1);
+    current_sn &= entity->sn_mask;  // Apply SN mask
+    
+    // Check for SN wraparound (SN about to wrap)
+    if (current_sn == 0 && entity->last_tx_sn > 0) {
+        // SN wrapped around - increment TX HFN
+        entity->tx_hfn++;
+        
+        // Check for HFN overflow
+        if (pdcp_check_hfn_overflow(entity)) {
+            printf("PDCP: WARNING - TX HFN overflow detected, key refresh required!\n");
+        }
+        
+        printf("PDCP: TX SN wraparound, new TX_HFN=%u\n", entity->tx_hfn);
+    }
+    
+    entity->last_tx_sn = current_sn;
+    pdcp_pdu->sn = (uint16_t)current_sn;
     
     // Apply integrity protection if security context exists
     if (entity->security_ctx != NULL) {
@@ -576,10 +643,10 @@ uint32_t pdcp_get_count(pdcp_entity_t* entity) {
         return 0;
     }
     
-    // COUNT = (PDCP SN + 2^16 * HFN) mod 2^32
-    // For simplicity, we'll use just the SN for now
-    // In a full implementation, HFN (Hyper Frame Number) would be tracked
-    return atomic_load(&entity->next_pdcp_sn);
+    // Use HFN-aware COUNT calculation
+    // COUNT = (PDCP SN + 2^SN_length × HFN) mod 2^32
+    // Per 3GPP TS 38.323 Section 5.1.1
+    return pdcp_get_tx_count(entity);
 }
 
 uesim_error_t pdcp_increment_count(pdcp_entity_t* entity) {
@@ -588,5 +655,362 @@ uesim_error_t pdcp_increment_count(pdcp_entity_t* entity) {
     }
     
     atomic_fetch_add(&entity->next_pdcp_sn, 1);
+    return UESIM_SUCCESS;
+}
+
+// HFN (Hyper Frame Number) Management Functions
+
+uesim_error_t pdcp_init_sn_params(pdcp_entity_t* entity) {
+    if (entity == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    // Initialize HFN and SN tracking based on SN length
+    entity->tx_hfn = 0;
+    entity->rx_hfn = 0;
+    entity->last_tx_sn = 0;
+    entity->last_rx_sn = 0;
+    
+    // Set SN mask, max, and HFN max based on SN length per 3GPP TS 38.323
+    switch (entity->sn_length) {
+        case 5:  // SRB: 5-bit SN
+            entity->sn_mask = 0x1F;           // 5 bits = 31 max
+            entity->sn_max = 32;              // 2^5 = 32
+            entity->hfn_max = 0x7FFFFFF;      // 27 bits for HFN
+            break;
+        case 12: // DRB: 12-bit SN (default)
+            entity->sn_mask = 0xFFF;           // 12 bits = 4095 max
+            entity->sn_max = 4096;            // 2^12 = 4096
+            entity->hfn_max = 0xFFFFF;         // 20 bits for HFN
+            break;
+        case 18: // DRB: 18-bit SN (enhanced)
+            entity->sn_mask = 0x3FFFF;        // 18 bits = 262143 max
+            entity->sn_max = 262144;          // 2^18 = 262144
+            entity->hfn_max = 0x3FFF;         // 14 bits for HFN
+            break;
+        default:
+            // Default to 12-bit SN
+            entity->sn_mask = 0xFFF;
+            entity->sn_max = 4096;
+            entity->hfn_max = 0xFFFFF;
+            break;
+    }
+    
+    printf("PDCP: Initialized SN params: SN_length=%d, SN_mask=0x%X, SN_max=%u, HFN_max=0x%X\n",
+           entity->sn_length, entity->sn_mask, entity->sn_max, entity->hfn_max);
+    
+    return UESIM_SUCCESS;
+}
+
+uint32_t pdcp_get_tx_count(pdcp_entity_t* entity) {
+    if (entity == NULL) {
+        return 0;
+    }
+    
+    // COUNT = (PDCP SN + 2^SN_length × HFN) mod 2^32
+    // Per 3GPP TS 38.323 Section 5.1.1
+    uint32_t sn = atomic_load(&entity->next_pdcp_sn) & entity->sn_mask;
+    uint32_t count = sn + (entity->sn_max * entity->tx_hfn);
+    
+    return count;
+}
+
+uint32_t pdcp_get_rx_count(pdcp_entity_t* entity, uint32_t received_sn) {
+    if (entity == NULL) {
+        return 0;
+    }
+    
+    // Apply SN mask to received SN
+    received_sn &= entity->sn_mask;
+    
+    // Detect wraparound and adjust HFN accordingly
+    // Per 3GPP TS 38.323 Section 5.1.2
+    uint32_t count;
+    
+    if (entity->last_rx_sn == 0) {
+        // First received packet
+        count = received_sn + (entity->sn_max * entity->rx_hfn);
+    } else if (pdcp_detect_sn_wraparound(entity->last_rx_sn, received_sn, entity->sn_max)) {
+        // SN wraparound detected - increment HFN
+        entity->rx_hfn++;
+        
+        // Check for HFN overflow
+        if (pdcp_check_hfn_overflow(entity)) {
+            printf("PDCP: WARNING - HFN overflow detected, key refresh required!\n");
+        }
+        
+        count = received_sn + (entity->sn_max * entity->rx_hfn);
+        printf("PDCP: RX SN wraparound detected, new HFN=%u, COUNT=0x%08X\n", 
+               entity->rx_hfn, count);
+    } else {
+        // Normal case - use current HFN
+        count = received_sn + (entity->sn_max * entity->rx_hfn);
+    }
+    
+    // Update last received SN
+    entity->last_rx_sn = received_sn;
+    
+    return count;
+}
+
+bool pdcp_detect_sn_wraparound(uint32_t last_sn, uint32_t new_sn, uint32_t sn_max) {
+    // Detect wraparound using threshold method
+    // Per 3GPP TS 38.323, wraparound is detected when:
+    // - new SN is much smaller than last SN (wrapped around)
+    // - The difference is greater than half the SN space
+    
+    uint32_t threshold = sn_max / 2;
+    
+    // Wraparound: last SN was high, new SN is low
+    // Example: last=4090, new=5 -> wraparound occurred
+    if (last_sn > threshold && new_sn < threshold) {
+        // Check if this is a real wraparound or just out-of-order
+        // If the difference is large (close to sn_max), it's a wraparound
+        uint32_t diff = last_sn - new_sn;
+        if (diff > threshold) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+bool pdcp_check_hfn_overflow(pdcp_entity_t* entity) {
+    if (entity == NULL) {
+        return false;
+    }
+    
+    // Check if HFN has reached or exceeded maximum
+    // Per 3GPP TS 38.323, when HFN reaches max, key refresh is required
+    if (entity->tx_hfn >= entity->hfn_max || entity->rx_hfn >= entity->hfn_max) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Key Refresh Functions (per 3GPP TS 38.323 Section 5.9)
+
+/*
+ * Trigger key refresh when HFN overflow is detected
+ * 
+ * Per 3GPP TS 38.323 Section 5.9:
+ * When the HFN is about to overflow, the UE shall:
+ * 1. Request key refresh from upper layers (RRC)
+ * 2. RRC initiates Security Mode Command procedure
+ * 3. New keys are derived and provided to PDCP
+ * 4. HFN is reset to 0
+ */
+uesim_error_t pdcp_trigger_key_refresh(pdcp_entity_t* entity) {
+    if (entity == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    printf("PDCP: Key refresh triggered for entity %u (HFN overflow detected)\n", 
+           entity->entity_id);
+    
+    /* 
+     * In a real implementation, this would:
+     * 1. Notify RRC layer to initiate Security Mode Command procedure
+     * 2. RRC would request new keys from NAS
+     * 3. NAS would derive new keys using KDF
+     * 4. New keys would be provided via pdcp_perform_key_refresh()
+     * 
+     * For simulation, we mark the entity as needing key refresh
+     */
+    
+    if (pthread_mutex_lock(&entity->entity_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Mark entity as needing key refresh */
+    /* In production, this would trigger an RRC procedure */
+    
+    printf("PDCP: Entity %u requires key refresh - TX_HFN=%u/%u, RX_HFN=%u/%u\n",
+           entity->entity_id, entity->tx_hfn, entity->hfn_max,
+           entity->rx_hfn, entity->hfn_max);
+    
+    pthread_mutex_unlock(&entity->entity_mutex);
+    
+    /* 
+     * Return error to indicate key refresh is required
+     * Upper layers should handle this by initiating Security Mode Command
+     */
+    return UESIM_ERROR_KEY_REFRESH_REQUIRED;
+}
+
+/*
+ * Perform key refresh with new keys
+ * 
+ * This function is called when new keys are available from upper layers
+ * It updates the security context and resets HFN
+ */
+uesim_error_t pdcp_perform_key_refresh(pdcp_entity_t* entity, 
+                                       const uint8_t* new_cipher_key,
+                                       const uint8_t* new_integrity_key) {
+    if (entity == NULL || new_cipher_key == NULL || new_integrity_key == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (entity->security_ctx == NULL) {
+        printf("PDCP: Cannot perform key refresh - no security context\n");
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    printf("PDCP: Performing key refresh for entity %u\n", entity->entity_id);
+    
+    if (pthread_mutex_lock(&entity->entity_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Lock security context */
+    if (pthread_mutex_lock(&entity->security_ctx->security_mutex) != 0) {
+        pthread_mutex_unlock(&entity->entity_mutex);
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Store old keys for logging (clear after use) */
+    uint8_t old_cipher_key[16];
+    uint8_t old_integrity_key[16];
+    memcpy(old_cipher_key, entity->security_ctx->ciphering_key, 16);
+    memcpy(old_integrity_key, entity->security_ctx->integrity_key, 16);
+    
+    /* Update keys */
+    memcpy(entity->security_ctx->ciphering_key, new_cipher_key, 16);
+    memcpy(entity->security_ctx->integrity_key, new_integrity_key, 16);
+    
+    /* Increment key refresh counter */
+    atomic_fetch_add(&entity->security_ctx->key_refresh_count, 1);
+    
+    /* Clear old key copies */
+    memset(old_cipher_key, 0, 16);
+    memset(old_integrity_key, 0, 16);
+    
+    pthread_mutex_unlock(&entity->security_ctx->security_mutex);
+    
+    /* Reset HFN and SN after key refresh */
+    entity->tx_hfn = 0;
+    entity->rx_hfn = 0;
+    entity->last_tx_sn = 0;
+    entity->last_rx_sn = 0;
+    atomic_store(&entity->next_pdcp_sn, 0);
+    atomic_store(&entity->next_expected_sn, 0);
+    
+    pthread_mutex_unlock(&entity->entity_mutex);
+    
+    printf("PDCP: Key refresh completed for entity %u\n", entity->entity_id);
+    printf("     HFN reset to 0, SN reset to 0\n");
+    printf("     Key refresh count: %u\n", 
+           atomic_load(&entity->security_ctx->key_refresh_count));
+    
+    return UESIM_SUCCESS;
+}
+
+/*
+ * Derive refreshed keys from KAMF using KDF
+ * 
+ * Per 3GPP TS 33.501 Annex A.6:
+ * K_rrc_enc = KDF(KAMF, 0x69, 0x01, algorithm_id)
+ * K_rrc_int = KDF(KAMF, 0x69, 0x02, algorithm_id)
+ * K_up_enc  = KDF(KAMF, 0x69, 0x03, algorithm_id)
+ * K_up_int  = KDF(KAMF, 0x69, 0x04, algorithm_id)
+ */
+uesim_error_t pdcp_derive_refreshed_keys(pdcp_entity_t* entity,
+                                         const uint8_t* kamf,
+                                         uint8_t* new_cipher_key,
+                                         uint8_t* new_integrity_key) {
+    if (entity == NULL || kamf == NULL || 
+        new_cipher_key == NULL || new_integrity_key == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (entity->security_ctx == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    /*
+     * KDF per 3GPP TS 33.220 Annex B.2
+     * S = FC || P0 || L0 || P1 || L1
+     * 
+     * For DRB keys:
+     * FC = 0x69 (Access stratum key derivation)
+     * P0 = Algorithm type distinguisher
+     *      0x01 = RRC encryption
+     *      0x02 = RRC integrity
+     *      0x03 = User plane encryption
+     *      0x04 = User plane integrity
+     * P1 = Algorithm identity
+     */
+    
+    uint8_t fc = 0x69;  /* Access stratum key derivation */
+    
+    /* Determine algorithm type distinguisher based on bearer type */
+    uint8_t enc_type;
+    uint8_t int_type;
+    
+    if (entity->bearer_type <= PDCP_BEARER_SRB3) {
+        /* Signaling Radio Bearer - use RRC keys */
+        enc_type = 0x01;  /* RRC encryption */
+        int_type = 0x02;  /* RRC integrity */
+    } else {
+        /* Data Radio Bearer - use UP keys */
+        enc_type = 0x03;  /* User plane encryption */
+        int_type = 0x04;  /* User plane integrity */
+    }
+    
+    /* Get algorithm identities */
+    uint8_t enc_alg = (uint8_t)entity->security_ctx->ciphering_alg;
+    uint8_t int_alg = (uint8_t)entity->security_ctx->integrity_alg;
+    
+    /* Build KDF input for ciphering key */
+    uint8_t s_enc[8];
+    size_t s_len = 0;
+    s_enc[s_len++] = fc;
+    s_enc[s_len++] = enc_type;
+    s_enc[s_len++] = 0;  /* L0 high byte */
+    s_enc[s_len++] = 1;  /* L0 low byte */
+    s_enc[s_len++] = enc_alg;
+    s_enc[s_len++] = 0;  /* L1 high byte */
+    s_enc[s_len++] = 1;  /* L1 low byte */
+    
+    /* Build KDF input for integrity key */
+    uint8_t s_int[8];
+    s_len = 0;
+    s_int[s_len++] = fc;
+    s_int[s_len++] = int_type;
+    s_int[s_len++] = 0;  /* L0 high byte */
+    s_int[s_len++] = 1;  /* L0 low byte */
+    s_int[s_len++] = int_alg;
+    s_int[s_len++] = 0;  /* L1 high byte */
+    s_int[s_len++] = 1;  /* L1 low byte */
+    
+    /* Derive keys using simplified KDF (production: HMAC-SHA-256) */
+    memset(new_cipher_key, 0, 16);
+    memset(new_integrity_key, 0, 16);
+    
+    for (int i = 0; i < 16; i++) {
+        /* Ciphering key derivation */
+        new_cipher_key[i] = kamf[i] ^ kamf[i + 16];
+        for (size_t j = 0; j < 7; j++) {
+            new_cipher_key[i] ^= s_enc[j];
+            new_cipher_key[i] = (new_cipher_key[i] << 1) | (new_cipher_key[i] >> 7);
+        }
+        new_cipher_key[i] ^= (uint8_t)(fc + enc_alg + i);
+        
+        /* Integrity key derivation */
+        new_integrity_key[i] = kamf[i] ^ kamf[(i + 8) % 32];
+        for (size_t j = 0; j < 7; j++) {
+            new_integrity_key[i] ^= s_int[j];
+            new_integrity_key[i] = (new_integrity_key[i] << 1) | (new_integrity_key[i] >> 7);
+        }
+        new_integrity_key[i] ^= (uint8_t)(fc + int_alg + i);
+    }
+    
+    printf("PDCP: Derived refreshed keys for entity %u\n", entity->entity_id);
+    printf("     Bearer type: %s\n", 
+           entity->bearer_type <= PDCP_BEARER_SRB3 ? "SRB" : "DRB");
+    printf("     Ciphering: NEA%d, type_distinguisher=0x%02x\n", enc_alg, enc_type);
+    printf("     Integrity: NIA%d, type_distinguisher=0x%02x\n", int_alg, int_type);
+    
     return UESIM_SUCCESS;
 }
