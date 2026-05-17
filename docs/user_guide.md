@@ -28,6 +28,9 @@ make clean && make
 | `-v, --verbose` | Enable verbose logging | `./uesim -v` |
 | `-d, --debug` | Enable debug mode | `./uesim -d` |
 | `-I, --interactive` | Start in interactive mode | `./uesim -I` |
+| `-M, --with-mock` | Start with mock core network | `./uesim -I --with-mock` |
+| `-t, --test` | Run in test mode | `./uesim --test` |
+| `-s, --scenario FILE` | Test scenario file | `./uesim --test --scenario scenarios/registration.json` |
 | `-h, --help` | Show help message | `./uesim -h` |
 
 ---
@@ -157,6 +160,121 @@ uesim> status
 uesim> scenario handover
 uesim> status
 uesim> stop
+```
+
+---
+
+## Mock Core Network Testing
+
+### Interactive Mode with Mock Components
+
+Start interactive mode with mock core network auto-started:
+
+```bash
+# Start with mock core network
+./uesim -I --with-mock
+
+# CLI commands
+uesim> mock status
+uesim> start
+uesim> scenario registration
+uesim> status
+uesim> stop
+uesim> mock stop
+uesim> exit
+```
+
+### Mock Control Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `mock start` | Start mock core network | `uesim> mock start` |
+| `mock stop` | Stop mock components | `uesim> mock stop` |
+| `mock status` | Show mock component status | `uesim> mock status` |
+
+### Mock Components
+
+The mock core network includes:
+
+| Component | Description | Port |
+|-----------|-------------|------|
+| AMF | Access and Mobility Management Function | 38412 |
+| SMF | Session Management Function | 38413 |
+| UPF | User Plane Function | 2152 |
+| CU-CP | Central Unit - Control Plane | 38472 |
+| DU | Distributed Unit | 38473 |
+| CU-UP | Central Unit - User Plane | 38474 |
+| XnAP | Inter-gNB Communication | 38423 |
+
+---
+
+## Test Mode (Automated Testing)
+
+### Running Test Scenarios
+
+Run automated tests with scenario files:
+
+```bash
+# Run registration test
+./uesim --test --scenario scenarios/registration_scenario.json
+
+# Run PDU session test
+./uesim --test --scenario scenarios/pdu_session_scenario.json
+
+# Run handover test
+./uesim --test --scenario scenarios/handover_scenario.json
+
+# Run deregistration test
+./uesim --test --scenario scenarios/deregistration_scenario.json
+```
+
+### Test Scenario File Format
+
+Test scenarios are defined in JSON format:
+
+```json
+{
+  "name": "Registration Test",
+  "description": "Test UE registration procedure",
+  "steps": [
+    {
+      "action": "start",
+      "params": {}
+    },
+    {
+      "action": "scenario",
+      "params": {
+        "type": "registration"
+      }
+    },
+    {
+      "action": "verify",
+      "params": {
+        "state": "registered"
+      }
+    }
+  ],
+  "expected_result": "success"
+}
+```
+
+### Test Output
+
+Test mode provides detailed output:
+
+```
+=== UESim Test Mode ===
+Scenario: scenarios/registration_scenario.json
+Name: Registration Test
+Steps: 3
+
+[1/3] start... PASSED
+[2/3] scenario registration... PASSED
+[3/3] verify state=registered... PASSED
+
+=== Test Results ===
+Total: 3 | Passed: 3 | Failed: 0
+Result: PASS
 ```
 
 ---

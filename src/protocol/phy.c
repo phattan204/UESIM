@@ -273,7 +273,23 @@ uesim_error_t phy_report_csi(phy_context_t* ctx, uint8_t cqi, uint8_t ri, uint8_
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("PHY: CSI report - CQI=%u, RI=%u, PMI=%u\n", cqi, ri, pmi);
+    if (pthread_mutex_lock(&ctx->phy_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Update channel state with reported CSI values */
+    ctx->channel.cqi = cqi;
+    ctx->channel.ri = (ri > 0) ? ri : 1;  /* RI must be at least 1 */
+    ctx->channel.pmi = pmi;
+    
+    /* Derive SINR from CQI (inverse mapping) */
+    /* CQI 1-3: SINR < 5 dB, CQI 4-6: 5-10 dB, CQI 7-9: 10-15 dB, etc. */
+    ctx->channel.sinr = (int16_t)((cqi - 1) * 2);  /* Approximate SINR in dB */
+    
+    pthread_mutex_unlock(&ctx->phy_mutex);
+    
+    printf("PHY: CSI report processed - CQI=%u, RI=%u, PMI=%u, derived SINR=%d dB\n", 
+           cqi, ri, pmi, ctx->channel.sinr);
     return UESIM_SUCCESS;
 }
 
@@ -500,11 +516,44 @@ uesim_error_t phy_update_ta(phy_context_t* ctx, int16_t ta_offset) {
 }
 
 uesim_error_t phy_apply_ta(phy_context_t* ctx) {
-    if (ctx == NULL || !ctx->timing_advance.ta_valid) {
+    if (ctx == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("PHY: Applied TA, N_TA=%u\n", ctx->timing_advance.n_ta);
+    if (!ctx->timing_advance.ta_valid) {
+        printf("PHY: TA not valid, cannot apply\n");
+        return UESIM_ERROR_NOT_INITIALIZED;
+    }
+    
+    if (pthread_mutex_lock(&ctx->phy_mutex) != 0) {
+        return UESIM_ERROR_THREAD;
+    }
+    
+    /* Calculate timing adjustment in Ts units (basic time unit) */
+    /* N_TA is in units of 16*Tc where Tc = 1/(480kHz * 4096) */
+    /* Convert to actual time offset: N_TA * 16 * Tc = N_TA * 16 / (480000 * 4096) seconds */
+    uint32_t n_ta = ctx->timing_advance.n_ta;
+    
+    /* Apply TA to UL timing - adjust transmission timing */
+    /* TA is now applied, update the timestamp */
+    ctx->timing_advance.ta_update_time = get_current_time_ms();
+    
+    /* Update statistics - count this as a TA update */
+    ctx->stats.ta_updates++;
+    
+    /* Check if TA is within valid range (3GPP TS 38.213) */
+    /* Max N_TA = 3846 * 16 = 61536 for normal CP */
+    bool ta_in_range = (n_ta <= 61536);
+    
+    pthread_mutex_unlock(&ctx->phy_mutex);
+    
+    printf("PHY: TA applied successfully, N_TA=%u, in_range=%s\n", 
+           n_ta, ta_in_range ? "yes" : "no");
+    
+    if (!ta_in_range) {
+        printf("PHY: WARNING - TA exceeds maximum, may cause UL timing issues\n");
+    }
+    
     return UESIM_SUCCESS;
 }
 

@@ -167,6 +167,29 @@ typedef struct {
     uint16_t redirect_earfcn;
 } rrc_connection_release_t;
 
+/* RRC Handover Preparation */
+typedef struct {
+    uint8_t meas_id;
+    int32_t rsrp;
+    int32_t rsrq;
+    uint16_t pci;
+    uint32_t cell_id;
+} rrc_handover_prep_t;
+
+/* RRC Security Mode Command */
+typedef struct {
+    uint8_t rrc_transaction_id;
+    uint8_t ciphering_alg;
+    uint8_t integrity_alg;
+    uint8_t security_capabilities[4];
+    size_t capabilities_len;
+} rrc_security_mode_cmd_t;
+
+/* RRC Security Mode Complete */
+typedef struct {
+    uint8_t rrc_transaction_id;
+} rrc_security_mode_complete_t;
+
 /* Buffer management */
 uesim_error_t asn1_buffer_init(asn1_buffer_t* buf, uint8_t* data, size_t capacity);
 uesim_error_t asn1_buffer_alloc(asn1_buffer_t* buf, size_t initial_capacity);
@@ -195,6 +218,7 @@ uesim_error_t rrc_decode_setup_request(const uint8_t* data, size_t len, rrc_setu
 uesim_error_t rrc_encode_setup(asn1_buffer_t* buf, const rrc_setup_t* msg);
 uesim_error_t rrc_decode_setup(const uint8_t* data, size_t len, rrc_setup_t* msg);
 uesim_error_t rrc_encode_setup_complete(asn1_buffer_t* buf, const rrc_setup_complete_t* msg);
+uesim_error_t rrc_decode_setup_complete(const uint8_t* data, size_t len, rrc_setup_complete_t* msg);
 
 /* RRC Reestablishment messages */
 uesim_error_t rrc_encode_reest_request(asn1_buffer_t* buf, const rrc_reest_request_t* msg);
@@ -207,6 +231,7 @@ uesim_error_t rrc_encode_reest_complete(asn1_buffer_t* buf, const rrc_reest_comp
 uesim_error_t rrc_encode_reconfiguration(asn1_buffer_t* buf, const rrc_reconfiguration_t* msg);
 uesim_error_t rrc_decode_reconfiguration(const uint8_t* data, size_t len, rrc_reconfiguration_t* msg);
 uesim_error_t rrc_encode_reconfig_complete(asn1_buffer_t* buf, const rrc_reconfig_complete_t* msg);
+uesim_error_t rrc_decode_reconfig_complete(const uint8_t* data, size_t len, rrc_reconfig_complete_t* msg);
 
 /* RRC Measurement messages */
 uesim_error_t rrc_encode_measurement_report(asn1_buffer_t* buf, const rrc_measurement_report_t* msg);
@@ -225,6 +250,15 @@ uesim_error_t rrc_encode_ue_cap_info(asn1_buffer_t* buf, const rrc_ue_cap_info_t
 /* RRC Connection Release */
 uesim_error_t rrc_encode_connection_release(asn1_buffer_t* buf, const rrc_connection_release_t* msg);
 uesim_error_t rrc_decode_connection_release(const uint8_t* data, size_t len, rrc_connection_release_t* msg);
+
+/* RRC Handover Preparation */
+uesim_error_t rrc_encode_handover_prep(asn1_buffer_t* buf, const rrc_handover_prep_t* msg);
+
+/* RRC Security Mode Command */
+uesim_error_t rrc_encode_security_mode_cmd(asn1_buffer_t* buf, const rrc_security_mode_cmd_t* msg);
+
+/* RRC Security Mode Complete */
+uesim_error_t rrc_encode_security_mode_complete(asn1_buffer_t* buf, const rrc_security_mode_complete_t* msg);
 
 /* Length encoding/decoding */
 uesim_error_t asn1_decode_length(const uint8_t* data, size_t* bit_offset, size_t* len);

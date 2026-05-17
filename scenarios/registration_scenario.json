@@ -1,0 +1,285 @@
+{
+  "scenario_name": "5G UE Registration",
+  "description": "Complete UE registration flow from RRC Setup to PDU Session Establishment",
+  "3gpp_references": [
+    "TS 38.331 - RRC Protocol",
+    "TS 38.413 - NGAP Protocol",
+    "TS 24.501 - NAS Protocol"
+  ],
+  "capture_command": "tcpdump -i any -s 0 -w registration.pcap 'sctp port 38412 or udp port 2152'",
+  
+  "message_flow": [
+    {
+      "step": 1,
+      "name": "RRCSetupRequest",
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "spec": "TS 38.331",
+      "message_type": "UL-CCCH-Message",
+      "asn1_per_encoded": true,
+      "fields": {
+        "establishment_cause": "mo-Signalling",
+        "ue_identity_type": "random_value",
+        "ue_identity_value": "39-bit random"
+      },
+      "wireshark_filter": "rrc.rrcSetupRequest"
+    },
+    {
+      "step": 2,
+      "name": "RRCSetup",
+      "direction": "gNB -> UE",
+      "interface": "Uu",
+      "spec": "TS 38.331",
+      "message_type": "DL-CCCH-Message",
+      "asn1_per_encoded": true,
+      "fields": {
+        "rrc_transaction_id": "2-bit",
+        "master_cell_group": "CellGroupConfig",
+        "radio_bearer_config": "RadioBearerConfig"
+      },
+      "wireshark_filter": "rrc.rrcSetup"
+    },
+    {
+      "step": 3,
+      "name": "RRCSetupComplete",
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "spec": "TS 38.331",
+      "message_type": "UL-DCCH-Message",
+      "asn1_per_encoded": true,
+      "fields": {
+        "rrc_transaction_id": "2-bit",
+        "selected_plmn": "PLMN Identity",
+        "nas_pdu": "RegistrationRequest"
+      },
+      "wireshark_filter": "rrc.rrcSetupComplete"
+    },
+    {
+      "step": 4,
+      "name": "NGSetupRequest",
+      "direction": "gNB -> AMF",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "transport": "SCTP",
+      "port": 38412,
+      "fields": {
+        "global_gnb_id": "PLMN + gNB ID",
+        "tai_list": "Tracking Area List",
+        "default_paging_drx": "Paging DRX"
+      },
+      "wireshark_filter": "ngap.ngSetupRequest"
+    },
+    {
+      "step": 5,
+      "name": "NGSetupResponse",
+      "direction": "AMF -> gNB",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "transport": "SCTP",
+      "port": 38412,
+      "fields": {
+        "amf_name": "AMF Name",
+        "served_guami_list": "GUAMI List",
+        "relative_amf_capacity": "Capacity"
+      },
+      "wireshark_filter": "ngap.ngSetupResponse"
+    },
+    {
+      "step": 6,
+      "name": "InitialUEMessage",
+      "direction": "gNB -> AMF",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "transport": "SCTP",
+      "fields": {
+        "ran_ue_ngap_id": "32-bit",
+        "nas_pdu": "RegistrationRequest",
+        "user_location_info": "NCGI + TAI",
+        "rrc_establishment_cause": "mo-Signalling"
+      },
+      "wireshark_filter": "ngap.initialUEMessage"
+    },
+    {
+      "step": 7,
+      "name": "DownlinkNASTransport (AuthenticationRequest)",
+      "direction": "AMF -> gNB -> UE",
+      "interface": "N2/NGAP + Uu",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "AuthenticationRequest",
+      "fields": {
+        "nas_message_type": "0x56",
+        "rand": "16-byte random",
+        "autn": "16-byte auth token"
+      },
+      "wireshark_filter": "nas_5gs.authenticationRequest"
+    },
+    {
+      "step": 8,
+      "name": "UplinkNASTransport (AuthenticationResponse)",
+      "direction": "UE -> gNB -> AMF",
+      "interface": "Uu + N2/NGAP",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "AuthenticationResponse",
+      "fields": {
+        "nas_message_type": "0x57",
+        "res": "16-byte response"
+      },
+      "wireshark_filter": "nas_5gs.authenticationResponse"
+    },
+    {
+      "step": 9,
+      "name": "DownlinkNASTransport (SecurityModeCommand)",
+      "direction": "AMF -> gNB -> UE",
+      "interface": "N2/NGAP + Uu",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "SecurityModeCommand",
+      "fields": {
+        "nas_message_type": "0x5E",
+        "selected_nas_security_algorithms": "Cipher + Integrity",
+        "ngksi": "Key Set ID"
+      },
+      "wireshark_filter": "nas_5gs.securityModeCommand"
+    },
+    {
+      "step": 10,
+      "name": "UplinkNASTransport (SecurityModeComplete)",
+      "direction": "UE -> gNB -> AMF",
+      "interface": "Uu + N2/NGAP",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "SecurityModeComplete",
+      "fields": {
+        "nas_message_type": "0x5F"
+      },
+      "wireshark_filter": "nas_5gs.securityModeComplete"
+    },
+    {
+      "step": 11,
+      "name": "InitialContextSetupRequest",
+      "direction": "AMF -> gNB",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "fields": {
+        "ran_ue_ngap_id": "32-bit",
+        "amf_ue_ngap_id": "40-bit",
+        "ue_security_capability": "Security caps",
+        "security_key": "Kgnb",
+        "nas_pdu": "RegistrationAccept"
+      },
+      "wireshark_filter": "ngap.initialContextSetupRequest"
+    },
+    {
+      "step": 12,
+      "name": "InitialContextSetupResponse",
+      "direction": "gNB -> AMF",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "fields": {
+        "ran_ue_ngap_id": "32-bit",
+        "amf_ue_ngap_id": "40-bit",
+        "pdu_session_resource_setup_list": "PDU Sessions"
+      },
+      "wireshark_filter": "ngap.initialContextSetupResponse"
+    },
+    {
+      "step": 13,
+      "name": "DownlinkNASTransport (RegistrationAccept)",
+      "direction": "AMF -> gNB -> UE",
+      "interface": "N2/NGAP + Uu",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "RegistrationAccept",
+      "fields": {
+        "nas_message_type": "0x42",
+        "registration_result": "Result",
+        "guti": "5G-GUTI",
+        "tai_list": "TAI List"
+      },
+      "wireshark_filter": "nas_5gs.registrationAccept"
+    },
+    {
+      "step": 14,
+      "name": "UplinkNASTransport (RegistrationComplete)",
+      "direction": "UE -> gNB -> AMF",
+      "interface": "Uu + N2/NGAP",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "RegistrationComplete",
+      "fields": {
+        "nas_message_type": "0x43"
+      },
+      "wireshark_filter": "nas_5gs.registrationComplete"
+    },
+    {
+      "step": 15,
+      "name": "UplinkNASTransport (PDUSessionEstablishmentRequest)",
+      "direction": "UE -> gNB -> AMF",
+      "interface": "Uu + N2/NGAP",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "PDUSessionEstablishmentRequest",
+      "fields": {
+        "nas_message_type": "0xC1",
+        "pdu_session_id": "1-15",
+        "pti": "Procedure Transaction ID",
+        "pdu_session_type": "IPv4/IPv6"
+      },
+      "wireshark_filter": "nas_5gs.pduSessionEstablishmentRequest"
+    },
+    {
+      "step": 16,
+      "name": "PDUSessionSetupRequest",
+      "direction": "AMF -> gNB",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "fields": {
+        "ran_ue_ngap_id": "32-bit",
+        "amf_ue_ngap_id": "40-bit",
+        "pdu_session_id": "1-15",
+        "s_nssai": "S-NSSAI",
+        "upf_teid": "UPF TEID",
+        "qos_flow_setup_list": "QoS Flows"
+      },
+      "wireshark_filter": "ngap.pduSessionSetupRequest"
+    },
+    {
+      "step": 17,
+      "name": "PDUSessionSetupResponse",
+      "direction": "gNB -> AMF",
+      "interface": "N2/NGAP",
+      "spec": "TS 38.413",
+      "fields": {
+        "ran_ue_ngap_id": "32-bit",
+        "amf_ue_ngap_id": "40-bit",
+        "pdu_session_resource_setup_list": "Resources"
+      },
+      "wireshark_filter": "ngap.pduSessionSetupResponse"
+    },
+    {
+      "step": 18,
+      "name": "DownlinkNASTransport (PDUSessionEstablishmentAccept)",
+      "direction": "AMF -> gNB -> UE",
+      "interface": "N2/NGAP + Uu",
+      "spec": "TS 38.413 + TS 24.501",
+      "nas_message": "PDUSessionEstablishmentAccept",
+      "fields": {
+        "nas_message_type": "0xC2",
+        "pdu_session_id": "1-15",
+        "pdu_address": "IPv4 Address",
+        "qos_rules": "QoS Rules"
+      },
+      "wireshark_filter": "nas_5gs.pduSessionEstablishmentAccept"
+    }
+  ],
+  
+  "tcpdump_commands": {
+    "ngap_only": "tcpdump -i any -s 0 -w ngap.pcap 'sctp port 38412'",
+    "gtpu_only": "tcpdump -i any -s 0 -w gtpu.pcap 'udp port 2152'",
+    "all_5g": "tcpdump -i any -s 0 -w 5g_all.pcap 'sctp port 38412 or udp port 2152'",
+    "specific_ue": "tcpdump -i any -s 0 -w ue.pcap 'sctp port 38412 and host <AMF_IP>'"
+  },
+  
+  "wireshark_display_filters": {
+    "all_ngap": "ngap",
+    "all_nas": "nas_5gs",
+    "registration_flow": "ngap || nas_5gs.registrationRequest || nas_5gs.registrationAccept",
+    "authentication_flow": "nas_5gs.authenticationRequest || nas_5gs.authenticationResponse",
+    "pdu_session_flow": "nas_5gs.pduSessionEstablishmentRequest || nas_5gs.pduSessionEstablishmentAccept"
+  }
+}

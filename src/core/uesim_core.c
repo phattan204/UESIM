@@ -10,6 +10,11 @@
 #include <string.h>
 
 #ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
+
+#ifdef _WIN32
 /* Windows mutex initializer */
 static pthread_mutex_t g_init_mutex;
 static int g_init_mutex_initialized = 0;
@@ -85,6 +90,18 @@ uesim_error_t uesim_init(void) {
         return result;
     }
     
+#ifdef _WIN32
+    /* Initialize Winsock on Windows */
+    WSADATA wsa_data;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+        fprintf(stderr, "Failed to initialize Winsock\n");
+        ReleaseMutex(g_init_mutex);
+        return UESIM_ERROR_SOCKET;
+    }
+    printf("Winsock initialized (version %d.%d)\n", 
+           LOBYTE(wsa_data.wVersion), HIBYTE(wsa_data.wVersion));
+#endif
+    
     atomic_store(&g_initialized, 1);
     printf("UE Simulation core initialized successfully\n");
     
@@ -118,6 +135,13 @@ void uesim_cleanup(void) {
     }
     
     memory_cleanup();
+    
+#ifdef _WIN32
+    /* Cleanup Winsock */
+    WSACleanup();
+    printf("Winsock cleanup completed\n");
+#endif
+    
     atomic_store(&g_initialized, 0);
     printf("UE Simulation core cleanup completed\n");
     
@@ -689,6 +713,9 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
+    printf("DEBUG: uesim_connect_gnb: gnb_id=%u, is_serving=%d, current_state=%d\n",
+           gnb_ctx->gnb_id, gnb_ctx->is_serving, gnb_ctx->state);
+    
 #ifdef _WIN32
     WaitForSingleObject(gnb_ctx->gnb_mutex, INFINITE);
 #else
@@ -708,9 +735,17 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     
     gnb_ctx->state = GNB_STATE_CONNECTING;
     
+    /* Create NGAP socket for all gNB types (including Mock) */
     /* Create NGAP socket */
     gnb_ctx->ngap_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (gnb_ctx->ngap_socket < 0) {
+        fprintf(stderr, "DEBUG: Failed to create NGAP socket, error=%d\n", 
+#ifdef _WIN32
+                WSAGetLastError()
+#else
+                errno
+#endif
+               );
         gnb_ctx->state = GNB_STATE_DISCONNECTED;
 #ifdef _WIN32
         ReleaseMutex(gnb_ctx->gnb_mutex);
@@ -735,7 +770,19 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     }
     
     /* Connect to gNB */
+    printf("DEBUG: Attempting connect to %s:%d, socket=%d\n",
+           inet_ntoa(gnb_ctx->addr.sin_addr), ntohs(gnb_ctx->addr.sin_port), gnb_ctx->ngap_socket);
+    
     if (connect(gnb_ctx->ngap_socket, (struct sockaddr*)&gnb_ctx->addr, sizeof(gnb_ctx->addr)) != 0) {
+#ifdef _WIN32
+        int err = WSAGetLastError();
+        fprintf(stderr, "DEBUG: connect() failed, error=%d (%s)\n", err, 
+                err == WSAECONNREFUSED ? "Connection refused" : 
+                err == WSAETIMEDOUT ? "Connection timed out" :
+                err == WSAENETUNREACH ? "Network unreachable" : "Unknown error");
+#else
+        fprintf(stderr, "DEBUG: connect() failed, error=%d (%s)\n", errno, strerror(errno));
+#endif
         uesim_sock_close(gnb_ctx->ngap_socket);
         uesim_sock_close(gnb_ctx->gtpu_socket);
         gnb_ctx->ngap_socket = -1;
@@ -757,10 +804,16 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     if (gnb_ctx->is_serving) {
         ue_ctx->ngap_socket = gnb_ctx->ngap_socket;
         ue_ctx->gtpu_socket = gnb_ctx->gtpu_socket;
+        printf("DEBUG: Updated UE ngap_socket=%d, gtpu_socket=%d\n", 
+               ue_ctx->ngap_socket, ue_ctx->gtpu_socket);
+    } else {
+        printf("DEBUG: WARNING - gNB is not serving, UE ngap_socket NOT updated (still %d)\n", 
+               ue_ctx->ngap_socket);
     }
     
-    printf("Connected to gNB %u (%s:%d)\n", 
-           gnb_ctx->gnb_id, inet_ntoa(gnb_ctx->addr.sin_addr), ntohs(gnb_ctx->addr.sin_port));
+    printf("Connected to gNB %u (%s:%d), socket=%d\n", 
+           gnb_ctx->gnb_id, inet_ntoa(gnb_ctx->addr.sin_addr), ntohs(gnb_ctx->addr.sin_port),
+           gnb_ctx->ngap_socket);
     
 #ifdef _WIN32
     ReleaseMutex(gnb_ctx->gnb_mutex);
@@ -872,11 +925,70 @@ static uesim_error_t execute_registration_procedure(ue_context_t* ue_ctx) {
 
 static uesim_error_t execute_establishment_procedure(ue_context_t* ue_ctx) {
     printf("Executing RRC establishment procedure for UE %u\n", ue_ctx->ue_id);
+    
+    if (ue_ctx == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    if (ue_ctx->serving_gnb == NULL) {
+        printf("  No serving gNB configured\n");
+        return UESIM_ERROR_NOT_INITIALIZED;
+    }
+    
+    /* Connect to gNB if not connected */
+    if (ue_ctx->serving_gnb->state != GNB_STATE_CONNECTED) {
+        uesim_error_t result = uesim_connect_gnb(ue_ctx, ue_ctx->serving_gnb);
+        if (result != UESIM_SUCCESS) {
+            printf("  Failed to connect to serving gNB: %d\n", result);
+            return result;
+        }
+    }
+    
+    /* Update UE state to connecting */
+    ue_ctx->current_state = RRC_STATE_CONNECTING;
+    ue_ctx->state_change_time = time(NULL);
+    
+    /* Increment RRC procedure statistics */
+    ue_ctx->stats.rrc_procedures_success++;
+    
+    printf("  RRC establishment procedure completed successfully\n");
     return UESIM_SUCCESS;
 }
 
 static uesim_error_t execute_reestablishment_procedure(ue_context_t* ue_ctx) {
     printf("Executing RRC re-establishment procedure for UE %u\n", ue_ctx->ue_id);
+    
+    if (ue_ctx == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    /* Re-establishment requires previous RRC connection */
+    if (ue_ctx->current_state != RRC_STATE_CONNECTED) {
+        printf("  UE not in RRC_CONNECTED state, cannot re-establish\n");
+        return UESIM_ERROR_NOT_INITIALIZED;
+    }
+    
+    if (ue_ctx->serving_gnb == NULL) {
+        printf("  No serving gNB configured\n");
+        return UESIM_ERROR_NOT_INITIALIZED;
+    }
+    
+    /* Check if we need to reconnect */
+    if (ue_ctx->serving_gnb->state != GNB_STATE_CONNECTED) {
+        printf("  Serving gNB disconnected, attempting reconnect...\n");
+        uesim_error_t result = uesim_connect_gnb(ue_ctx, ue_ctx->serving_gnb);
+        if (result != UESIM_SUCCESS) {
+            printf("  Failed to reconnect to serving gNB: %d\n", result);
+            ue_ctx->stats.rrc_procedures_failed++;
+            return result;
+        }
+    }
+    
+    /* Update state */
+    ue_ctx->state_change_time = time(NULL);
+    ue_ctx->stats.rrc_procedures_success++;
+    
+    printf("  RRC re-establishment procedure completed successfully\n");
     return UESIM_SUCCESS;
 }
 

@@ -249,6 +249,12 @@ uesim_error_t send_ngap_message(ue_context_t* ue_ctx, const void* data, size_t l
     }
     
     if (ue_ctx->ngap_socket < 0) {
+        fprintf(stderr, "DEBUG: send_ngap_message: Invalid socket (ngap_socket=%d), serving_gnb=%p\n",
+                ue_ctx->ngap_socket, (void*)ue_ctx->serving_gnb);
+        if (ue_ctx->serving_gnb != NULL) {
+            fprintf(stderr, "DEBUG: serving_gnb->ngap_socket=%d, state=%d\n",
+                    ue_ctx->serving_gnb->ngap_socket, ue_ctx->serving_gnb->state);
+        }
         return UESIM_ERROR_SOCKET;
     }
     
@@ -314,14 +320,87 @@ uesim_error_t send_gtpu_packet(ue_context_t* ue_ctx, const void* data, size_t le
     return UESIM_SUCCESS;
 }
 
+/* Forward declaration for message processing */
+extern uesim_error_t rrc_process_incoming_message(ue_context_t* ue_ctx, const void* data, size_t len);
+
+/* Receive buffer size */
+#define RECV_BUFFER_SIZE 4096
+
 #ifdef _WIN32
 /* Windows I/O thread using select() */
 static void* io_thread_function(void* arg) {
     (void)arg;
+    static uint8_t recv_buffer[RECV_BUFFER_SIZE];
+    
     printf("I/O thread started\n");
     
     while (g_socket_mgr.running) {
-        Sleep(100); /* Poll interval */
+        /* Collect all active NGAP sockets for select */
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        int max_fd = 0;
+        
+        /* Get UE instances via accessor functions */
+        ue_context_t** ue_instances = uesim_get_ue_instances();
+        int ue_count = uesim_get_ue_instance_count();
+        
+        if (ue_instances != NULL) {
+            for (int i = 0; i < ue_count; i++) {
+                ue_context_t* ue_ctx = ue_instances[i];
+                if (ue_ctx != NULL && ue_ctx->ngap_socket >= 0) {
+                    FD_SET(ue_ctx->ngap_socket, &read_fds);
+                    if (ue_ctx->ngap_socket > max_fd) {
+                        max_fd = ue_ctx->ngap_socket;
+                    }
+                }
+            }
+        }
+        
+        if (max_fd == 0) {
+            Sleep(50);
+            continue;
+        }
+        
+        /* Use select with 50ms timeout */
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 50000;
+        
+        int ready = select(max_fd + 1, &read_fds, NULL, NULL, &tv);
+        if (ready == -1) {
+            int err = WSAGetLastError();
+            if (err != WSAEINTR) {
+                printf("select() error: %d\n", err);
+            }
+            continue;
+        }
+        
+        if (ready == 0) {
+            continue; /* Timeout, no data */
+        }
+        
+        /* Process ready sockets */
+        if (ue_instances != NULL) {
+            for (int i = 0; i < ue_count; i++) {
+                ue_context_t* ue_ctx = ue_instances[i];
+                if (ue_ctx != NULL && ue_ctx->ngap_socket >= 0) {
+                    if (FD_ISSET(ue_ctx->ngap_socket, &read_fds)) {
+                        ssize_t received = recv(ue_ctx->ngap_socket, (char*)recv_buffer, RECV_BUFFER_SIZE, 0);
+                        if (received > 0) {
+                            printf("[I/O] Received %zd bytes on NGAP socket for UE %u\n", received, ue_ctx->ue_id);
+                            rrc_process_incoming_message(ue_ctx, recv_buffer, (size_t)received);
+                        } else if (received == 0) {
+                            printf("[I/O] Connection closed for UE %u\n", ue_ctx->ue_id);
+                        } else {
+                            int err = WSAGetLastError();
+                            if (err != WSAEWOULDBLOCK && err != WSAEINTR) {
+                                printf("[I/O] recv() error for UE %u: %d\n", ue_ctx->ue_id, err);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     
     printf("I/O thread stopped\n");
@@ -333,11 +412,12 @@ static void* io_thread_function(void* arg) {
     (void)arg;
     const int max_events = 64;
     struct epoll_event events[max_events];
+    static uint8_t recv_buffer[RECV_BUFFER_SIZE];
     
     printf("I/O thread started\n");
     
     while (atomic_load(&g_socket_mgr.running)) {
-        int nfds = epoll_wait(g_socket_mgr.epoll_fd, events, max_events, 1000);
+        int nfds = epoll_wait(g_socket_mgr.epoll_fd, events, max_events, 100);
         if (nfds == -1) {
             if (errno == EINTR) continue;
             perror("epoll_wait");
@@ -350,6 +430,22 @@ static void* io_thread_function(void* arg) {
             
             if (events[i].events & (EPOLLERR | EPOLLHUP)) {
                 printf("Socket error for UE %u\n", ue_ctx->ue_id);
+                continue;
+            }
+            
+            if (events[i].events & EPOLLIN) {
+                /* Data available to read */
+                ssize_t received = recv(ue_ctx->ngap_socket, recv_buffer, RECV_BUFFER_SIZE, 0);
+                if (received > 0) {
+                    printf("[I/O] Received %zd bytes on NGAP socket for UE %u\n", received, ue_ctx->ue_id);
+                    rrc_process_incoming_message(ue_ctx, recv_buffer, (size_t)received);
+                } else if (received == 0) {
+                    printf("[I/O] Connection closed for UE %u\n", ue_ctx->ue_id);
+                } else {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                        perror("recv");
+                    }
+                }
             }
         }
     }

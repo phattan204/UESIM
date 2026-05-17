@@ -1,0 +1,562 @@
+-- 3GPP TS 38.331
+-- NR Radio Resource Control (RRC) Protocol
+-- ASN.1 Schema for Message Validation
+-- Version 17.4.0
+
+NR-RRC-38331 DEFINITIONS AUTOMATIC TAGS ::=
+
+BEGIN
+
+-- ============== Basic Types ==============
+
+RRC-TransactionIdentifier ::= INTEGER (0..3)
+
+Plmn-Identity ::= SEQUENCE {
+    mcc    MCC,
+    mnc    MNC
+}
+
+MCC ::= INTEGER (0..999)
+MNC ::= INTEGER (0..999)
+
+NR-Cell-Identity ::= BIT STRING (SIZE (36))
+
+PhysicalCellId ::= INTEGER (0..1007)
+
+-- ============== UE Identity ==============
+
+UE-Identity ::= CHOICE {
+    randomValue     BIT STRING (SIZE (39)),
+    ng-5G-S-TMSI    NG-5G-S-TMSI
+}
+
+NG-5G-S-TMSI ::= SEQUENCE {
+    fiveG-S-TMSI    FiveG-S-TMSI
+}
+
+FiveG-S-TMSI ::= SEQUENCE {
+    fiveG-TMSI  FiveG-TMSI,
+    amf-SetId   AMF-SetId
+}
+
+FiveG-TMSI ::= BIT STRING (SIZE (32))
+AMF-SetId ::= BIT STRING (SIZE (10))
+AMF-Pointer ::= BIT STRING (SIZE (6))
+
+-- ============== Establishment Causes ==============
+
+EstablishmentCause ::= ENUMERATED {
+    emergency,
+    highPriorityAccess,
+    mt-Access,
+    mo-Signalling,
+    mo-Data,
+    mo-VoiceCall,
+    mo-VideoCall,
+    mo-SMS,
+    mps-PriorityAccess,
+    mcs-PriorityAccess,
+    spare6,
+    spare5,
+    spare4,
+    spare3,
+    spare2,
+    spare1
+}
+
+ReestablishmentCause ::= ENUMERATED {
+    reconfigurationFailure,
+    handoverFailure,
+    otherFailure,
+    spare1
+}
+
+-- ============== RRC Setup Messages ==============
+
+RRCSetupRequest ::= SEQUENCE {
+    rrcSetupRequest            RRCSetupRequest-IEs
+}
+
+RRCSetupRequest-IEs ::= SEQUENCE {
+    ue-Identity                UE-Identity,
+    establishmentCause         EstablishmentCause,
+    spare                      BIT STRING (SIZE (1))
+}
+
+RRCSetup ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        rrcSetup                  RRCSetup-IEs,
+        criticalExtensionsFuture  SEQUENCE {}
+    }
+}
+
+RRCSetup-IEs ::= SEQUENCE {
+    radioBearerConfig            RadioBearerConfig OPTIONAL,
+    masterCellGroup              OCTET STRING OPTIONAL,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+RRCSetupComplete ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        rrcSetupComplete           RRCSetupComplete-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+RRCSetupComplete-IEs ::= SEQUENCE {
+    selectedPLMN-Identity        INTEGER (1..12) OPTIONAL,
+    registeredAMF                RegisteredAMF OPTIONAL,
+    guami-Type                   ENUMERATED {native, mapped} OPTIONAL,
+    s-nssai-List                 S-NSSAI-List OPTIONAL,
+    dedicatedNAS-Message         DedicatedNAS-Message OPTIONAL,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+DedicatedNAS-Message ::= OCTET STRING
+
+RegisteredAMF ::= SEQUENCE {
+    plmn-Identity    Plmn-Identity OPTIONAL,
+    amf-Identifier   AMF-Identifier
+}
+
+AMF-Identifier ::= SEQUENCE {
+    amf-RegionId    INTEGER (0..255),
+    amf-SetId       INTEGER (0..1023),
+    amf-Pointer     INTEGER (0..63)
+}
+
+-- ============== RRC Reconfiguration ==============
+
+RRCReconfiguration ::= SEQUENCE {
+    rrc-TransactionIdentifier      RRC-TransactionIdentifier,
+    criticalExtensions             CHOICE {
+        rrcReconfiguration           RRCReconfiguration-IEs,
+        criticalExtensionsFuture     SEQUENCE {}
+    }
+}
+
+RRCReconfiguration-IEs ::= SEQUENCE {
+    radioBearerConfig              RadioBearerConfig OPTIONAL,
+    secondaryCellGroupConfig       OCTET STRING OPTIONAL,
+    measConfig                     MeasConfig OPTIONAL,
+    lateNonCriticalExtension       OCTET STRING OPTIONAL,
+    nonCriticalExtension           SEQUENCE {} OPTIONAL
+}
+
+RadioBearerConfig ::= SEQUENCE {
+    srb-ToAddModList               SRB-ToAddModList OPTIONAL,
+    srb3-ToRelease                 ENUMERATED {true} OPTIONAL,
+    drb-ToAddModList               DRB-ToAddModList OPTIONAL,
+    drb-ToReleaseList              DRB-ToReleaseList OPTIONAL,
+    securityConfig                 SecurityConfig OPTIONAL
+}
+
+SRB-ToAddModList ::= SEQUENCE (SIZE (1..2)) OF SRB-ToAddMod
+
+SRB-ToAddMod ::= SEQUENCE {
+    srb-Identity     SRB-Identity,
+    reestablishPDCP  ENUMERATED {true} OPTIONAL,
+    discardOnPDCP    ENUMERATED {true} OPTIONAL,
+    pdcp-CNF         ENUMERATED {true} OPTIONAL
+}
+
+SRB-Identity ::= INTEGER (1..3)
+
+DRB-ToAddModList ::= SEQUENCE (SIZE (1..32)) OF DRB-ToAddMod
+
+DRB-ToAddMod ::= SEQUENCE {
+    drb-Identity           DRB-Identity,
+    pdcp-Config            PDCP-Config OPTIONAL,
+    rlc-Config             RLC-Config OPTIONAL,
+    mac-LogicalChannelConfig  LogicalChannelConfig OPTIONAL
+}
+
+DRB-Identity ::= INTEGER (1..32)
+
+DRB-ToReleaseList ::= SEQUENCE (SIZE (1..32)) OF DRB-Identity
+
+-- ============== RRC Connection Release ==============
+
+RRCRelease ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        rrcRelease                 RRCRelease-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+RRCRelease-IEs ::= SEQUENCE {
+    releaseCause                 ReleaseCause OPTIONAL,
+    redirectedCarrierInfo        RedirectedCarrierInfo OPTIONAL,
+    idleModeSignalControl        ENUMERATED {release} OPTIONAL,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+ReleaseCause ::= ENUMERATED {
+    rna-Update,
+    loadBalancingTARequired,
+    access-unrelated,
+    other
+}
+
+RedirectedCarrierInfo ::= CHOICE {
+    nr                NR-CarrierInfo,
+    eutra             EUTRA-CarrierInfo
+}
+
+NR-CarrierInfo ::= SEQUENCE {
+    ssb-Frequency          INTEGER (0..3279165),
+    subcarrierSpacing      ENUMERATED {kHz15, kHz30, kHz60, kHz120, kHz240},
+    carrierBandwidth       INTEGER (1..275),
+    absoluteFrequencySSB   INTEGER (0..3279165) OPTIONAL
+}
+
+EUTRA-CarrierInfo ::= SEQUENCE {
+    carrierFreq            INTEGER (0..65535),
+    allowedMeasBandwidth   ENUMERATED {mbw6, mbw15, mbw25, mbw50, mbw75, mbw100}
+}
+
+-- ============== Security Mode Command ==============
+
+SecurityModeCommand ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        securityModeCommand        SecurityModeCommand-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+SecurityModeCommand-IEs ::= SEQUENCE {
+    securityConfigSMC            SecurityConfigSMC,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+SecurityConfigSMC ::= SEQUENCE {
+    securityAlgorithmConfig      SecurityAlgorithmConfig,
+    keyToUse                     ENUMERATED {master, secondary} OPTIONAL
+}
+
+SecurityAlgorithmConfig ::= SEQUENCE {
+    cipheringAlgorithm           CipheringAlgorithm,
+    integrityProtAlgorithm       IntegrityProtAlgorithm OPTIONAL
+}
+
+CipheringAlgorithm ::= ENUMERATED {
+    nea0, nea1, nea2, nea3
+}
+
+IntegrityProtAlgorithm ::= ENUMERATED {
+    nia0, nia1, nia2, nia3
+}
+
+SecurityModeComplete ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        securityModeComplete       SecurityModeComplete-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+SecurityModeComplete-IEs ::= SEQUENCE {
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+-- ============== Measurement Configuration ==============
+
+MeasConfig ::= SEQUENCE {
+    measObjectToAddModList       MeasObjectToAddModList OPTIONAL,
+    measObjectToReleaseList      MeasObjectToReleaseList OPTIONAL,
+    reportConfigToAddModList     ReportConfigToAddModList OPTIONAL,
+    reportConfigToReleaseList    ReportConfigToReleaseList OPTIONAL,
+    measIdToAddModList           MeasIdToAddModList OPTIONAL,
+    measIdToReleaseList          MeasIdToReleaseList OPTIONAL,
+    quantityConfig               QuantityConfig OPTIONAL,
+    measGapConfig                MeasGapConfig OPTIONAL,
+    s-MeasureConfig              S-MeasureConfig OPTIONAL
+}
+
+MeasObjectToAddModList ::= SEQUENCE (SIZE (1..64)) OF MeasObjectToAddMod
+
+MeasObjectToAddMod ::= SEQUENCE {
+    measObjectId    MeasObjectId,
+    measObject      CHOICE {
+        measObjectNR     MeasObjectNR,
+        measObjectEUTRA  MeasObjectEUTRA
+    }
+}
+
+MeasObjectId ::= INTEGER (1..64)
+
+MeasObjectNR ::= SEQUENCE {
+    ssb-Frequency          INTEGER (0..3279165),
+    ssb-SubcarrierSpacing  ENUMERATED {kHz15, kHz30, kHz60, kHz120, kHz240},
+    smtc1                  INTEGER (0..255) OPTIONAL,
+    offsetMO               INTEGER (-30..30) DEFAULT 0
+}
+
+ReportConfigToAddModList ::= SEQUENCE (SIZE (1..64)) OF ReportConfigToAddMod
+
+ReportConfigToAddMod ::= SEQUENCE {
+    reportConfigId    ReportConfigId,
+    reportConfig      CHOICE {
+        reportConfigNR     ReportConfigNR,
+        reportConfigEUTRA  ReportConfigEUTRA
+    }
+}
+
+ReportConfigId ::= INTEGER (1..64)
+
+ReportConfigNR ::= SEQUENCE {
+    reportType    CHOICE {
+        periodical    ReportPeriodical,
+        eventTriggered  ReportEventTriggered
+    }
+}
+
+ReportPeriodical ::= SEQUENCE {
+    rsType              ENUMERATED {ssb, csi-rs},
+    reportInterval      ENUMERATED {ms120, ms240, ms480, ms640, ms1024, ms2048, ms5120, ms10240, min1, min6, min12, min30, min60},
+    reportAmount        ENUMERATED {r1, r2, r4, r8, r16, r32, r64, infinity}
+}
+
+ReportEventTriggered ::= SEQUENCE {
+    eventId             CHOICE {
+        eventA1           EventA1,
+        eventA2           EventA2,
+        eventA3           EventA3,
+        eventA4           EventA4,
+        eventA5           EventA5
+    },
+    rsType              ENUMERATED {ssb, csi-rs},
+    reportInterval      ENUMERATED {ms120, ms240, ms480, ms640, ms1024, ms2048, ms5120, ms10240, min1, min6, min12, min30, min60},
+    reportAmount        ENUMERATED {r1, r2, r4, r8, r16, r32, r64, infinity}
+}
+
+EventA1 ::= SEQUENCE {
+    a1-Threshold    MeasTriggerQuantity
+}
+
+EventA2 ::= SEQUENCE {
+    a2-Threshold    MeasTriggerQuantity
+}
+
+EventA3 ::= SEQUENCE {
+    a3-Threshold    MeasTriggerQuantityOffset,
+    reportOnLeave   BOOLEAN DEFAULT FALSE,
+    hysteresis      Hysteresis OPTIONAL
+}
+
+EventA4 ::= SEQUENCE {
+    a4-Threshold    MeasTriggerQuantity
+}
+
+EventA5 ::= SEQUENCE {
+    a5-Threshold1   MeasTriggerQuantity,
+    a5-Threshold2   MeasTriggerQuantity
+}
+
+MeasTriggerQuantity ::= CHOICE {
+    rsrp    INTEGER (0..127),
+    rsrq    INTEGER (0..127),
+    sinr    INTEGER (0..127)
+}
+
+MeasTriggerQuantityOffset ::= CHOICE {
+    rsrp    INTEGER (-30..30),
+    rsrq    INTEGER (-30..30),
+    sinr    INTEGER (-30..30)
+}
+
+Hysteresis ::= INTEGER (0..30)
+
+-- ============== Measurement Report ==============
+
+MeasurementReport ::= SEQUENCE {
+    criticalExtensions    CHOICE {
+        measurementReport   MeasurementReport-IEs,
+        criticalExtensionsFuture  SEQUENCE {}
+    }
+}
+
+MeasurementReport-IEs ::= SEQUENCE {
+    measResults           MeasResults,
+    lateNonCriticalExtension  OCTET STRING OPTIONAL,
+    nonCriticalExtension  SEQUENCE {} OPTIONAL
+}
+
+MeasResults ::= SEQUENCE {
+    measId                MeasId OPTIONAL,
+    measResultServingMO   MeasResultServMO,
+    measResultNeighCells  MeasResultNeighCells OPTIONAL
+}
+
+MeasId ::= INTEGER (1..64)
+
+MeasResultServMO ::= SEQUENCE {
+    cellResults    CellResults
+}
+
+CellResults ::= SEQUENCE {
+    rsIndexResults    RS-IndexResults OPTIONAL,
+    ssb-Results       SSB-Results OPTIONAL
+}
+
+SSB-Results ::= SEQUENCE {
+    ssb-Result    SEQUENCE (SIZE (1..64)) OF SSB-Result
+}
+
+SSB-Result ::= SEQUENCE {
+    ssb-Index      INTEGER (0..63),
+    rsrp           INTEGER (0..127) OPTIONAL,
+    rsrq           INTEGER (0..127) OPTIONAL,
+    sinr           INTEGER (0..127) OPTIONAL
+}
+
+RS-IndexResults ::= SEQUENCE {
+    rs-IndexResult   SEQUENCE (SIZE (1..64)) OF RS-IndexResult
+}
+
+RS-IndexResult ::= SEQUENCE {
+    rs-Index         INTEGER (0..95),
+    rsrp             INTEGER (0..127) OPTIONAL,
+    rsrq             INTEGER (0..127) OPTIONAL,
+    sinr             INTEGER (0..127) OPTIONAL
+}
+
+MeasResultNeighCells ::= CHOICE {
+    measResultListNR     MeasResultListNR,
+    measResultListEUTRA  MeasResultListEUTRA
+}
+
+MeasResultListNR ::= SEQUENCE (SIZE (1..64)) OF MeasResultNR
+
+MeasResultNR ::= SEQUENCE {
+    physCellId         PhysicalCellId OPTIONAL,
+    measResult         MeasResultNR-Cell OPTIONAL
+}
+
+MeasResultNR-Cell ::= SEQUENCE {
+    cellGlobalId       CellGlobalId OPTIONAL,
+    cellResults        CellResults
+}
+
+CellGlobalId ::= SEQUENCE {
+    plmn-Identity    Plmn-Identity,
+    nr-CellIdentity  NR-Cell-Identity
+}
+
+-- ============== Handover Messages ==============
+
+HandoverCommand ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        handoverCommand            HandoverCommand-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+HandoverCommand-IEs ::= SEQUENCE {
+    targetCellGlobalId           CellGlobalId,
+    newUE-Identity               C-RNTI,
+    radioBearerConfig            RadioBearerConfig OPTIONAL,
+    secondaryCellGroupConfig     OCTET STRING OPTIONAL,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+C-RNTI ::= BIT STRING (SIZE (16))
+
+HandoverConfirm ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        handoverConfirm            HandoverConfirm-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+HandoverConfirm-IEs ::= SEQUENCE {
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+-- ============== UE Capability ==============
+
+UECapabilityEnquiry ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        ueCapabilityEnquiry        UECapabilityEnquiry-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+UECapabilityEnquiry-IEs ::= SEQUENCE {
+    ue-CapabilityRAT-RequestList UE-CapabilityRAT-RequestList,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+UE-CapabilityRAT-RequestList ::= SEQUENCE (SIZE (1..8)) OF UE-CapabilityRAT-Request
+
+UE-CapabilityRAT-Request ::= SEQUENCE {
+    rat-Type    ENUMERATED {nr, eutra-nr, eutra, spare1, spare2, spare3},
+    requestType ENUMERATED {ue-Capability, ue-CapabilityRAT-Container}
+}
+
+UECapabilityInformation ::= SEQUENCE {
+    rrc-TransactionIdentifier    RRC-TransactionIdentifier,
+    criticalExtensions           CHOICE {
+        ueCapabilityInformation    UECapabilityInformation-IEs,
+        criticalExtensionsFuture   SEQUENCE {}
+    }
+}
+
+UECapabilityInformation-IEs ::= SEQUENCE {
+    ue-CapabilityRAT-ContainerList UE-CapabilityRAT-ContainerList OPTIONAL,
+    lateNonCriticalExtension     OCTET STRING OPTIONAL,
+    nonCriticalExtension         SEQUENCE {} OPTIONAL
+}
+
+UE-CapabilityRAT-ContainerList ::= SEQUENCE (SIZE (1..8)) OF UE-CapabilityRAT-Container
+
+UE-CapabilityRAT-Container ::= SEQUENCE {
+    rat-Type                ENUMERATED {nr, eutra-nr, eutra, spare1, spare2, spare3},
+    ue-CapabilityRAT-Container  OCTET STRING
+}
+
+-- ============== PDCP Configuration ==============
+
+PDCP-Config ::= SEQUENCE {
+    drb-ContinueROHC           ENUMERATED {true} OPTIONAL,
+    pdcp-SN-SizeUL             ENUMERATED {len12bits, len18bits} OPTIONAL,
+    pdcp-SN-SizeDL             ENUMERATED {len12bits, len18bits} OPTIONAL,
+    cipheringDisabled          ENUMERATED {true} OPTIONAL,
+    integrityProtection        ENUMERATED {enabled} OPTIONAL,
+    t-Reordering               ENUMERATED {ms0, ms50, ms100, ms150, ms200, ms250, ms300, ms350, ms400, ms450, ms500, ms600, ms700, ms800, ms900, ms1000, ms1200, ms1400, ms1600, ms1800, ms2000, ms2200, ms2400, ms2600, ms2800, ms3000, ms3200, ms3400, ms3600, ms3800, ms4000, ms4200, ms4400, ms4600, ms4800, ms5000, ms5200, ms5400, ms5600, ms5800, ms6000, ms6200, ms6400, ms6600, ms6800, ms7000, ms7200, ms7400, ms7600, ms7800, ms8000, ms8200, ms8400, ms8600, ms8800, ms9000, ms9200, ms9400, ms9600, ms9800, ms10000, ms10200, ms10400, ms10600, ms10800, ms11000, ms11200, ms11400, ms11600, ms11800, ms12000, ms12200, ms12400, ms12600, ms12800, ms13000, ms13200, ms13400, ms13600, ms13800, ms14000, ms14200, ms14400, ms14600, ms14800, ms15000, ms15200, ms15400, ms15600, ms15800, ms16000} OPTIONAL
+}
+
+-- ============== RLC Configuration ==============
+
+RLC-Config ::= CHOICE {
+    am    RLC-Config-AM,
+    um-Bi-Directional  RLC-Config-UM-Bi-Directional,
+    um-Uni-Directional-UL  RLC-Config-UM-Uni-Directional-UL,
+    um-Uni-Directional-DL  RLC-Config-UM-Uni-Directional-DL
+}
+
+RLC-Config-AM ::= SEQUENCE {
+    ul-AM-RLC     UL-AM-RLC,
+    dl-AM-RLC     DL-AM-RLC
+}
+
+UL-AM-RLC ::= SEQUENCE {
+    sn-FieldLength      ENUMERATED {size12, size18} OPTIONAL,
+    t-PollRetransmit    ENUMERATED {ms5, ms10, ms15, ms20, ms25, ms30, ms35, ms40, ms45, ms50, ms55, ms60, ms65, ms70, ms75, ms80, ms85, ms90, ms95, ms100, ms105, ms110, ms115, ms120, ms125, ms130, ms135, ms140, ms145, ms150, ms155, ms160, ms165, ms170, ms175, ms180, ms185, ms190, ms195, ms200, ms205, ms210, ms215, ms220, ms225, ms230, ms235, ms240, ms245, ms250, ms255, ms260, ms265, ms270, ms275, ms280, ms285, ms290, ms295, ms300, ms305, ms310, ms315, ms320, ms325, ms330, ms335, ms340, ms345, ms350, ms355, ms360, ms365, ms370, ms375, ms380, ms385, ms390, ms395, ms400, ms405, ms410, ms415, ms420, ms425, ms430, ms435, ms440, ms445, ms450, ms455, ms460, ms465, ms470, ms475, ms480, ms485, ms490, ms495, ms500, ms505, ms510, ms515, ms520, ms525, ms530, ms535, ms540, ms545, ms550, ms555, ms560, ms565, ms570, ms575, ms580, ms585, ms590, ms595, ms600, ms605, ms610, ms615, ms620, ms625, ms630, ms635, ms640, ms645, ms650, ms655, ms660, ms665, ms670, ms675, ms680, ms685, ms690, ms695, ms700, ms705, ms710, ms715, ms720, ms725, ms730, ms735, ms740, ms745, ms750, ms755, ms760, ms765, ms770, ms775, ms780, ms785, ms790, ms795, ms800, ms805, ms810, ms815, ms820, ms825, ms830, ms835, ms840, ms845, ms850, ms855, ms860, ms865, ms870, ms875, ms880, ms885, ms890, ms895, ms900, ms905, ms910, ms915, ms920, ms925, ms930, ms935, ms940, ms945, ms950, ms955, ms960, ms965, ms970, ms975, ms980, ms985, ms990, ms995, ms1000, ms1050, ms1100, ms1150, ms1200, ms1250, ms1300, ms1350, ms1400, ms1450, ms1500, ms1550, ms1600, ms1650, ms1700, ms1750, ms1800, ms1850, ms1900, ms1950, ms2000, ms2050, ms2100, ms2150, ms2200, ms2250, ms2300, ms2350, ms2400, ms2450, ms2500, ms2550, ms2600, ms2650, ms2700, ms2750, ms2800, ms2850, ms2900, ms2950, ms3000, ms3050, ms3100, ms3150, ms3200, ms3250, ms3300, ms3350, ms3400, ms3450, ms3500, ms3550, ms3600, ms3650, ms3700, ms3750, ms3800, ms3850, ms3900, ms3950, ms4000, ms4050, ms4100, ms4150, ms4200, ms4250, ms4300, ms4350, ms4400, ms4450, ms4500, ms4550, ms4600, ms4650, ms4700, ms4750, ms4800, ms4850, ms4900, ms4950, ms5000, ms5050, ms5100, ms5150, ms5200, ms5250, ms5300, ms5350, ms5400, ms5450, ms5500, ms5550, ms5600, ms5650, ms5700, ms5750, ms5800, ms5850, ms5900, ms5950, ms6000, ms6050, ms6100, ms6150, ms6200, ms6250, ms6300, ms6350, ms6400},
+    pollPDU             ENUMERATED {p4, p8, p16, p32, p64, p128, p256, p512, p1024, p2048, p4096, p6144, p8192, p12288, p16384, p20480, p24576, p28672, p32768, p40960, p49152, p57344, p65536, infinity},
+    pollByte            ENUMERATED {kB1, kB2, kB4, kB8, kB16, kB32, kB64, kB125, kB250, kB500, kB750, kB1000, kB1250, kB1500, kB2000, kB3000, kB4000, kB5000, kB6000, kB7000, kB8000, kB9000, kB10000, kB11000, kB12000, kB13000, kB14000, kB15000, kB16000, kB17000, kB18000, kB19000, kB20000, kB22000, kB24000, kB26000, kB28000, kB30000, kB33000, kB36000, kB39000, kB42000, kB45000, kB48000, kB51000, kB54000, kB57000, kB60000, kB63000, kB66000, kB69000, kB72000, kB75000, kB78000, kB81000, kB84000, kB87000, kB90000, kB93000, kB96000, kB99000, kB102000, kB105000, kB108000, kB111000, kB114000, kB117000, kB120000, kB123000, kB126000, kB129000, kB132000, kB135000, kB138000, kB141000, kB144000, kB147000, kB150000, kB153000, kB156000, kB159000, kB162000, kB165000, kB168000, kB171000, kB174000, kB177000, kB180000, kB183000, kB186000, kB189000, kB192000, kB195000, kB198000, kB201000, kB204000, kB207000, kB210000, kB213000, kB216

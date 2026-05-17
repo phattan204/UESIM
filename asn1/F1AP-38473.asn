@@ -1,0 +1,401 @@
+-- 3GPP TS 38.473
+-- F1 Application Protocol (F1AP)
+-- ASN.1 Schema for Message Validation
+-- Version 17.4.0
+
+F1AP-38473 DEFINITIONS AUTOMATIC TAGS ::=
+
+BEGIN
+
+-- ============== Basic Types ==============
+
+GNB-CU-UE-F1AP-ID ::= INTEGER (0..4294967295)  -- 32 bits
+GNB-DU-UE-F1AP-ID ::= INTEGER (0..4294967295)  -- 32 bits
+
+GNB-CU-ID ::= BIT STRING (SIZE (22..32))
+GNB-DU-ID ::= BIT STRING (SIZE (22..32))
+
+NR-CGI ::= SEQUENCE {
+    pLMNIdentity     PLMN-Identity,
+    nRCellIdentity   NCI
+}
+
+NCI ::= BIT STRING (SIZE (36))
+PLMN-Identity ::= BIT STRING (SIZE (24))
+
+-- ============== F1AP PDU ==============
+
+F1AP-PDU ::= CHOICE {
+    initiatingMessage      InitiatingMessage,
+    successfulOutcome      SuccessfulOutcome,
+    unsuccessfulOutcome    UnsuccessfulOutcome
+}
+
+InitiatingMessage ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+SuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+UnsuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+OpenType ::= OCTET STRING
+
+Criticality ::= ENUMERATED {reject, ignore, notify}
+
+-- ============== Procedure Codes (TS 38.473 Section 9) ==============
+
+ProcedureCode ::= INTEGER {
+    id-F1Setup                         (1),
+    id-F1Reset                         (2),
+    id-ErrorIndication                 (3),
+    id-F1Removal                       (4),
+    id-gNB-DU-Configuration-Update     (5),
+    id-gNB-CU-Configuration-Update     (6),
+    id-UEContextSetup                  (7),
+    id-UEContextRelease                (8),
+    id-UEContextModification           (9),
+    id-UEContextReleaseRequest         (10),
+    id-DL-RRC-Message-Transfer         (11),
+    id-UL-RRC-Message-Transfer         (12),
+    id-F1-UE-Context-Management        (13),
+    id-Notify                          (14),
+    id-Access-and-Mobility-Indication  (15),
+    id-System-Information-Delivery     (16),
+    id-Positioning-Measurement         (17),
+    id-Positioning-Assistance-Data     (18),
+    id-Positioning-Information         (19),
+    id-Positioning-Information-Update  (20),
+    id-Positioning-Measurement-Abort   (21),
+    id-Positioning-Measurement-Failure (22),
+    id-Positioning-Activation          (23),
+    id-Positioning-Deactivation        (24),
+    id-Tracing                         (25),
+    id-Deactivation                    (26)
+} (1..26)
+
+-- ============== Cause Values ==============
+
+Cause ::= CHOICE {
+    radioNetwork      CauseRadioNetwork,
+    transport         CauseTransport,
+    protocol          CauseProtocol,
+    misc              CauseMisc
+}
+
+CauseRadioNetwork ::= ENUMERATED {
+    unspecified                                (0),
+    rlc-failure                                (1),
+    unexpected-rlc-message                     (2),
+    rlc-reestablishment-failure                (3),
+    action-required                            (4),
+    normal-release                             (5),
+    radio-connection-with-UE-lost             (6),
+    failure-in-radio-interface-procedure      (7),
+    no-radio-resources-available              (8),
+    unspecified-QoS-reason                    (9),
+    QoS-not-guaranteed                        (10),
+    rlf-detected                              (11),
+    drb-released                              (12),
+    du-srb-establishment-failure              (13),
+    du-drb-establishment-failure              (14),
+    measurement-failure                       (15),
+    handover-cancelled                        (16),
+    inactivity-timer-expired                  (17),
+    du-resource-coordination-failure          (18)
+}
+
+CauseTransport ::= ENUMERATED {
+    transport-resource-unavailable            (0),
+    unspecified                                (1),
+    f1-transport-logical-error                 (2),
+    f1-transport-protocol-error                (3),
+    f1-transport-backoff-timer-expired         (4)
+}
+
+CauseProtocol ::= ENUMERATED {
+    transfer-syntax-error                      (0),
+    abstract-syntax-error-reject               (1),
+    abstract-syntax-error-ignore-and-notify    (2),
+    message-not-compatible-with-receiver-state (3),
+    semantic-error                             (4),
+    abstract-syntax-error-falsely-constructed-message (5),
+    unspecified                                (6)
+}
+
+CauseMisc ::= ENUMERATED {
+    control-processing-overload                (0),
+    not-enough-user-plane-processing-resources (1),
+    hardware-failure                           (2),
+    om-intervention                            (3),
+    unspecified                                (4)
+}
+
+-- ============== F1 Setup ==============
+
+F1Setup-Request ::= SEQUENCE {
+    gNB-DU-ID                 GNB-DU-ID,
+    gNB-DU-Name               GNB-DU-Name OPTIONAL,
+    gNB-DU-System-Information  GNB-DU-System-Information OPTIONAL,
+    cells-To-Be-Activated-List  Cells-To-Be-Activated-List OPTIONAL,
+    gNB-DU-UE-Association-Logical-Connection-Item  GNB-DU-UE-Association-Logical-Connection-Item OPTIONAL
+}
+
+F1Setup-Response ::= SEQUENCE {
+    gNB-CU-ID                 GNB-CU-ID,
+    gNB-CU-Name               GNB-CU-Name OPTIONAL,
+    cells-To-Be-Activated-List  Cells-To-Be-Activated-List OPTIONAL,
+    gNB-CU-UE-Association-Logical-Connection-Item  GNB-CU-UE-Association-Logical-Connection-Item OPTIONAL
+}
+
+F1Setup-Failure ::= SEQUENCE {
+    cause                     Cause,
+    timeToWait                TimeToWait OPTIONAL,
+    criticalityDiagnostics    CriticalityDiagnostics OPTIONAL
+}
+
+-- ============== UE Context Management ==============
+
+UEContextSetup-Request ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID OPTIONAL,
+    rRC-Container             RRC-Container OPTIONAL,
+    sRB-To-Setup-List         SRB-To-Setup-List OPTIONAL,
+    dRB-To-Setup-List         DRB-To-Setup-List OPTIONAL,
+    sCell-To-Setup-List       SCell-To-Setup-List OPTIONAL,
+    uEAggregateMaximumBitRate UEAggregateMaximumBitRate OPTIONAL
+}
+
+UEContextSetup-Response ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID,
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    dRB-Setup-List            DRB-Setup-List OPTIONAL,
+    dRB-Failed-To-Setup-List  DRB-Failed-To-Setup-List OPTIONAL,
+    sCell-Setup-List          SCell-Setup-List OPTIONAL,
+    sCell-Failed-To-Setup-List  SCell-Failed-To-Setup-List OPTIONAL,
+    criticalityDiagnostics    CriticalityDiagnostics OPTIONAL
+}
+
+UEContextSetup-Failure ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID OPTIONAL,
+    cause                     Cause,
+    criticalityDiagnostics    CriticalityDiagnostics OPTIONAL
+}
+
+UEContextRelease-Command ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID,
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    cause                     Cause
+}
+
+UEContextRelease-Complete ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID,
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    criticalityDiagnostics    CriticalityDiagnostics OPTIONAL
+}
+
+UEContextRelease-Request ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID,
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    cause                     Cause
+}
+
+-- ============== RRC Message Transfer ==============
+
+DLRRC-Message-Transfer ::= SEQUENCE {
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID,
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    sRB-ID                    SRB-ID,
+    rRC-Container             RRC-Container,
+    rRC-Container-Type        RRC-Container-Type OPTIONAL
+}
+
+ULRRC-Message-Transfer ::= SEQUENCE {
+    gNB-DU-UE-F1AP-ID         GNB-DU-UE-F1AP-ID,
+    gNB-CU-UE-F1AP-ID         GNB-CU-UE-F1AP-ID OPTIONAL,
+    sRB-ID                    SRB-ID,
+    rRC-Container             RRC-Container
+}
+
+RRC-Container ::= OCTET STRING
+RRC-Container-Type ::= ENUMERATED {
+    rrc-container,
+    rrc-container-with-report-characteristics
+}
+
+-- ============== SRB/DRB Definitions ==============
+
+SRB-ID ::= INTEGER (1..3)
+DRB-ID ::= INTEGER (1..32)
+
+SRB-To-Setup-List ::= SEQUENCE (SIZE (1..2)) OF SRB-To-Setup-Item
+
+SRB-To-Setup-Item ::= SEQUENCE {
+    sRB-ID                    SRB-ID,
+    duplicate-Indication      ENUMERATED {true} OPTIONAL
+}
+
+DRB-To-Setup-List ::= SEQUENCE (SIZE (1..32)) OF DRB-To-Setup-Item
+
+DRB-To-Setup-Item ::= SEQUENCE {
+    dRB-ID                    DRB-ID,
+    qoS-Information           QoS-Information,
+    uL-UP-TNL-Information     UL-UP-TNL-Information OPTIONAL,
+    dL-UP-TNL-Information     DL-UP-TNL-Information OPTIONAL,
+    rLC-Mode                  RLC-Mode OPTIONAL,
+    dRB-Inactivity-Timer      DRB-Inactivity-Timer OPTIONAL,
+    uP-Transport-Information  UP-Transport-Information OPTIONAL
+}
+
+DRB-Setup-List ::= SEQUENCE (SIZE (1..32)) OF DRB-Setup-Item
+
+DRB-Setup-Item ::= SEQUENCE {
+    dRB-ID                    DRB-ID,
+    dL-UP-TNL-Information     DL-UP-TNL-Information OPTIONAL
+}
+
+DRB-Failed-To-Setup-List ::= SEQUENCE (SIZE (1..32)) OF DRB-Failed-To-Setup-Item
+
+DRB-Failed-To-Setup-Item ::= SEQUENCE {
+    dRB-ID                    DRB-ID,
+    cause                     Cause
+}
+
+-- ============== QoS Information ==============
+
+QoS-Information ::= CHOICE {
+    dRB-Level-QoS-Parameters    DRB-Level-QoS-Parameters,
+    qos-Flow-Information        QoS-Flow-Information
+}
+
+DRB-Level-QoS-Parameters ::= SEQUENCE {
+    qoS-Characteristics         QoS-Characteristics,
+    allocation-and-Retention-Priority  Allocation-and-Retention-Priority
+}
+
+QoS-Characteristics ::= CHOICE {
+    non-Dynamic-5QI-Descriptor   Non-Dynamic-5QI-Descriptor,
+    dynamic-5QI-Descriptor       Dynamic-5QI-Descriptor
+}
+
+Non-Dynamic-5QI-Descriptor ::= SEQUENCE {
+    five-QI                     INTEGER (0..255),
+    averaging-window            Averaging-Window OPTIONAL
+}
+
+Dynamic-5QI-Descriptor ::= SEQUENCE {
+    priority-Level              Priority-Level,
+    packet-Delay-Budget         Packet-Delay-Budget,
+    packet-Error-Rate           Packet-Error-Rate
+}
+
+Allocation-and-Retention-Priority ::= SEQUENCE {
+    priority-Level              Priority-Level,
+    pre-Emption-Capability      Pre-Emption-Capability,
+    pre-Emption-Vulnerability   Pre-Emption-Vulnerability
+}
+
+Priority-Level ::= INTEGER (0..127)
+Pre-Emption-Capability ::= ENUMERATED {shall-not-trigger-pre-emption, may-trigger-pre-emption}
+Pre-Emption-Vulnerability ::= ENUMERATED {not-pre-emptable, pre-emptable}
+Packet-Delay-Budget ::= INTEGER (0..1023)
+Packet-Error-Rate ::= SEQUENCE {
+    packet-Error-Rate-Value     Packet-Error-Rate-Value,
+    packet-Error-Rate-Exponent  Packet-Error-Rate-Exponent
+}
+Packet-Error-Rate-Value ::= INTEGER (0..9)
+Packet-Error-Rate-Exponent ::= INTEGER (0..9)
+
+QoS-Flow-Information ::= SEQUENCE (SIZE (1..64)) OF QoS-Flow-Item
+
+QoS-Flow-Item ::= SEQUENCE {
+    qos-Flow-Identifier         QosFlowIdentifier,
+    qos-Flow-Level-QoS-Parameters  QoS-Flow-Level-QoS-Parameters
+}
+
+QosFlowIdentifier ::= INTEGER (0..63)
+
+QoS-Flow-Level-QoS-Parameters ::= SEQUENCE {
+    qoS-Characteristics         QoS-Characteristics,
+    allocation-and-Retention-Priority  Allocation-and-Retention-Priority
+}
+
+-- ============== RLC Mode ==============
+
+RLC-Mode ::= ENUMERATED {
+    rlc-am,
+    rlc-um-bidirectional,
+    rlc-um-unidirectional-ul,
+    rlc-um-unidirectional-dl
+}
+
+-- ============== UP TNL Information ==============
+
+UL-UP-TNL-Information ::= UP-Transport-Information
+DL-UP-TNL-Information ::= UP-Transport-Information
+
+UP-Transport-Information ::= SEQUENCE {
+    gTPTunnel                  GTPTunnel
+}
+
+GTPTunnel ::= SEQUENCE {
+    transport-Layer-Address    Transport-Layer-Address,
+    gTP-TEID                   GTP-TEID
+}
+
+Transport-Layer-Address ::= BIT STRING (SIZE (1..160))
+GTP-TEID ::= OCTET STRING (SIZE (4))
+
+-- ============== Common Types ==============
+
+GNB-CU-Name ::= PrintableString (SIZE (1..150))
+GNB-DU-Name ::= PrintableString (SIZE (1..150))
+
+TimeToWait ::= ENUMERATED {
+    v1s, v2s, v5s, v10s, v20s, v60s, v120s, v300s, v600s
+}
+
+UEAggregateMaximumBitRate ::= SEQUENCE {
+    uEAggregateMaximumBitRate-UL  BIT STRING (SIZE (1..256)),
+    uEAggregateMaximumBitRate-DL  BIT STRING (SIZE (1..256))
+}
+
+DRB-Inactivity-Timer ::= INTEGER (0..7200)
+
+Averaging-Window ::= INTEGER (0..4095)
+
+Cells-To-Be-Activated-List ::= SEQUENCE (SIZE (1..512)) OF Cell-To-Be-Activated-Item
+
+Cell-To-Be-Activated-Item ::= SEQUENCE {
+    nR-CGI                     NR-CGI,
+    nR-PCI                     NR-PCI OPTIONAL
+}
+
+NR-PCI ::= INTEGER (0..1007)
+
+SCell-To-Setup-List ::= SEQUENCE (SIZE (1..32)) OF SCell-To-Setup-Item
+SCell-To-Setup-Item ::= SEQUENCE {
+    sCell-ID                   NR-CGI
+}
+
+SCell-Setup-List ::= SEQUENCE (SIZE (1..32)) OF SCell-Setup-Item
+SCell-Setup-Item ::= SEQUENCE {
+    sCell-ID                   NR-CGI
+}
+
+SCell-Failed-To-Setup-List ::= SEQUENCE (SIZE (1..32)) OF SCell-Failed-To-Setup-Item
+SCell-Failed-To-Setup-Item ::= SEQUENCE {
+    sCell-ID                   NR-CGI,
+    cause                      Cause
+}
+
+END

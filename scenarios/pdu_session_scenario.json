@@ -1,0 +1,260 @@
+{
+  "scenario_name": "PDU Session Establishment",
+  "description": "5G PDU Session Establishment procedure after UE Registration",
+  "3gpp_reference": "3GPP TS 23.502 Section 4.3.2",
+  "interfaces": ["N1 (NAS)", "N2 (NGAP)", "N3 (GTP-U)"],
+  "capture_command": "sudo tcpdump -i any -w pdu_session.pcap 'port 38412 or port 2152'",
+  "wireshark_filter": "ngap || gtp || nas-5gs",
+  
+  "message_flow": [
+    {
+      "step": 1,
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "ULInformationTransfer",
+      "description": "UE sends UL information transfer containing NAS PDU",
+      "3gpp_spec": "TS 38.331 Section 5.7.3",
+      "contains": {
+        "nas_message": "UL NAS Transport",
+        "payload": "PDU Session Establishment Request"
+      }
+    },
+    {
+      "step": 2,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UplinkNASTransport",
+      "description": "gNB forwards NAS PDU to AMF via NGAP",
+      "3gpp_spec": "TS 38.413 Section 8.6",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "NAS-PDU (PDU Session Establishment Request)",
+        "UserLocationInformation"
+      ],
+      "nas_content": {
+        "message_type": "UL NAS Transport",
+        "pdu_session_id": 1,
+        "request_type": "initial request",
+        "s_nssai": { "sst": 1 },
+        "dnn": "internet"
+      }
+    },
+    {
+      "step": 3,
+      "direction": "AMF -> SMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "POST /nsmf-pdusession/v1/sm-contexts",
+      "description": "AMF sends SM Context Create Request to SMF",
+      "3gpp_spec": "TS 29.502 Section 5.1",
+      "json_payload": {
+        "supi": "imsi-001010123456789",
+        "pduSessionId": 1,
+        "dnn": "internet",
+        "sNssai": { "sst": 1 },
+        "servingNfId": "AMF-1",
+        "anType": "3GPP_ACCESS"
+      }
+    },
+    {
+      "step": 4,
+      "direction": "SMF -> UDM",
+      "interface": "Nudm",
+      "protocol": "HTTP/2",
+      "message": "GET /nudm-sdm/v2/{supi}/sm-data",
+      "description": "SMF retrieves SM subscription data from UDM",
+      "3gpp_spec": "TS 29.503 Section 5.2"
+    },
+    {
+      "step": 5,
+      "direction": "SMF -> AMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "201 Created (SM Context)",
+      "description": "SMF creates SM context and responds to AMF"
+    },
+    {
+      "step": 6,
+      "direction": "SMF -> UPF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Establishment Request",
+      "description": "SMF establishes PFCP session with UPF",
+      "3gpp_spec": "TS 29.244 Section 7.4",
+      "pfcp_ies": [
+        "Node ID",
+        "F-SEID",
+        "Create PDR (Packet Detection Rule)",
+        "Create FAR (Forwarding Action Rule)",
+        "Create QER (QoS Enforcement Rule)"
+      ]
+    },
+    {
+      "step": 7,
+      "direction": "UPF -> SMF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Establishment Response",
+      "description": "UPF confirms PFCP session establishment",
+      "pfcp_ies": [
+        "Node ID",
+        "F-SEID",
+        "Cause (Success)",
+        "F-TEID (UPF tunnel endpoint)"
+      ]
+    },
+    {
+      "step": 8,
+      "direction": "AMF -> gNB",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "PDUSessionResourceSetupRequest",
+      "description": "AMF requests gNB to setup PDU Session resources",
+      "3gpp_spec": "TS 38.413 Section 8.9",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "PDUSessionResourceSetupList",
+        "NAS-PDU (PDU Session Establishment Accept)"
+      ],
+      "pdu_session_resource": {
+        "pdu_session_id": 1,
+        "s_nssai": { "sst": 1 },
+        "pdu_session_type": "ipv4",
+        "qos_flow_setup_list": [
+          {
+            "qfi": 1,
+            "five_qi": 9,
+            "priority_level": 9
+          }
+        ],
+        "up_transport_info": {
+          "upf_ip": "10.0.0.1",
+          "upf_teid": 10001
+        }
+      }
+    },
+    {
+      "step": 9,
+      "direction": "gNB -> UE",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "RRCReconfiguration",
+      "description": "gNB sends RRC reconfiguration with DRB setup",
+      "3gpp_spec": "TS 38.331 Section 5.3.5",
+      "rrc_content": {
+        "drb_to_add_mod": [
+          {
+            "drb_id": 1,
+            "pdcp_config": { "sn_size": 18 },
+            "rlc_config": { "mode": "am" },
+            "logical_channel_config": { "priority": 1 }
+          }
+        ]
+      }
+    },
+    {
+      "step": 10,
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "RRCReconfigurationComplete",
+      "description": "UE confirms RRC reconfiguration",
+      "3gpp_spec": "TS 38.331 Section 5.3.5"
+    },
+    {
+      "step": 11,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "PDUSessionResourceSetupResponse",
+      "description": "gNB confirms PDU Session resource setup",
+      "3gpp_spec": "TS 38.413 Section 8.9",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "PDUSessionResourceSetupList"
+      ],
+      "pdu_session_resource": {
+        "pdu_session_id": 1,
+        "up_transport_info": {
+          "gnb_ip": "192.168.1.10",
+          "gnb_teid": 20001
+        }
+      }
+    },
+    {
+      "step": 12,
+      "direction": "AMF -> SMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "POST /nsmf-pdusession/v1/sm-contexts/{smContextId}/modify",
+      "description": "AMF updates SM context with gNB tunnel info",
+      "json_payload": {
+        "upfNode": "UPF-1",
+        "anTunnelInfo": {
+          "ipAddress": "192.168.1.10",
+          "teid": 20001
+        }
+      }
+    },
+    {
+      "step": 13,
+      "direction": "SMF -> UPF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Modification Request",
+      "description": "SMF updates UPF with gNB tunnel info",
+      "3gpp_spec": "TS 29.244 Section 7.5"
+    },
+    {
+      "step": 14,
+      "direction": "UPF -> SMF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Modification Response",
+      "description": "UPF confirms session modification"
+    },
+    {
+      "step": 15,
+      "direction": "UE -> gNB -> AMF",
+      "interface": "N1",
+      "protocol": "NAS",
+      "message": "PDU Session Establishment Complete",
+      "description": "UE confirms PDU Session establishment",
+      "3gpp_spec": "TS 24.501 Section 6.3"
+    }
+  ],
+  
+  "qos_parameters": {
+    "default_qos": {
+      "5qi": 9,
+      "arp_priority": 9,
+      "arp_preempt_cap": "not_preempt",
+      "arp_preempt_vuln": "preemptable"
+    },
+    "ims_qos": {
+      "5qi": 1,
+      "arp_priority": 1,
+      "gbr_ul": "128 kbps",
+      "gbr_dl": "128 kbps"
+    }
+  },
+  
+  "pdu_session_types": {
+    "ipv4": 1,
+    "ipv6": 2,
+    "ipv4v6": 3,
+    "ethernet": 4
+  },
+  
+  "notes": [
+    "PDU Session can be initiated only after successful Registration",
+    "Default QoS flow (QFI=1) is always created",
+    "UPF TEID is used for GTP-U encapsulation on N3 interface",
+    "gNB TEID is used for GTP-U encapsulation in uplink direction"
+  ]
+}

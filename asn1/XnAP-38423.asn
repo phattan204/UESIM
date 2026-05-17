@@ -1,0 +1,473 @@
+-- 3GPP TS 38.423
+-- Xn Application Protocol (XnAP)
+-- ASN.1 Schema for Message Validation
+-- Version 17.4.0
+
+XnAP-38423 DEFINITIONS AUTOMATIC TAGS ::=
+
+BEGIN
+
+-- ============== Basic Types ==============
+
+GNB-ID ::= BIT STRING (SIZE (22..32))
+
+NR-CGI ::= SEQUENCE {
+    pLMNIdentity     PLMN-Identity,
+    nRCellIdentity   NCI
+}
+
+NCI ::= BIT STRING (SIZE (36))
+PLMN-Identity ::= BIT STRING (SIZE (24))
+
+Physical-Cell-ID ::= INTEGER (0..1007)
+
+-- ============== XnAP PDU ==============
+
+XnAP-PDU ::= CHOICE {
+    initiatingMessage      InitiatingMessage,
+    successfulOutcome      SuccessfulOutcome,
+    unsuccessfulOutcome    UnsuccessfulOutcome
+}
+
+InitiatingMessage ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+SuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+UnsuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+OpenType ::= OCTET STRING
+
+Criticality ::= ENUMERATED {reject, ignore, notify}
+
+-- ============== Procedure Codes (TS 38.423 Section 9) ==============
+
+ProcedureCode ::= INTEGER {
+    id-XnSetup                         (1),
+    id-XnReset                         (2),
+    id-ErrorIndication                 (3),
+    id-XnRemoval                       (4),
+    id-Paging                          (5),
+    id-HandoverPreparation             (6),
+    id-HandoverCancel                  (7),
+    id-RetrieveUEContext               (8),
+    id-Xn-UesContextTransfer           (9),
+    id-HandoverRestrictionInformation  (10),
+    id-RANPaging                       (11),
+    id-XnGeneral                       (12),
+    id-XnGeneralTransfer               (13),
+    id-DualConnectivityPreparation     (14),
+    id-XnInterfaceReconfiguration      (15),
+    id-SIBTransfer                     (16),
+    id-AccessAndMobilityIndication     (17),
+    id-LocationReporting               (18),
+    id-NeighborCellInformationExchange (19)
+} (1..19)
+
+-- ============== Cause Values ==============
+
+Cause ::= CHOICE {
+    radioNetwork      CauseRadioNetwork,
+    transport         CauseTransport,
+    protocol          CauseProtocol,
+    misc              CauseMisc
+}
+
+CauseRadioNetwork ::= ENUMERATED {
+    unspecified                                (0),
+    handover-cancelled                         (1),
+    target-ran-unavailable                     (2),
+    no-radio-resources-available              (3),
+    unknown-target-Cell-ID                    (4),
+    unknown-target-gNB                        (5),
+    unknown-UE-ID                             (6),
+    failure-in-radio-interface-procedure      (7),
+    rlf-detected                              (8),
+    radio-connection-with-UE-lost             (9),
+    interaction-with-other-procedure          (10),
+    ngran-generated-cause                     (11)
+}
+
+CauseTransport ::= ENUMERATED {
+    transport-resource-unavailable            (0),
+    unspecified                                (1),
+    xn-transport-logical-error                 (2),
+    xn-transport-protocol-error                (3)
+}
+
+CauseProtocol ::= ENUMERATED {
+    transfer-syntax-error                      (0),
+    abstract-syntax-error-reject               (1),
+    abstract-syntax-error-ignore-and-notify    (2),
+    message-not-compatible-with-receiver-state (3),
+    semantic-error                             (4),
+    abstract-syntax-error-falsely-constructed-message (5),
+    unspecified                                (6)
+}
+
+CauseMisc ::= ENUMERATED {
+    control-processing-overload                (0),
+    not-enough-user-plane-processing-resources (1),
+    hardware-failure                           (2),
+    om-intervention                            (3),
+    unspecified                                (4)
+}
+
+-- ============== Xn Setup ==============
+
+XnSetup-Request ::= SEQUENCE {
+    global-GNB-ID                  Global-GNB-ID,
+    gNB-Name                       GNB-Name OPTIONAL,
+    supported-PLMNs                Supported-PLMNs,
+    served-Cells-List              Served-Cells-List OPTIONAL
+}
+
+XnSetup-Response ::= SEQUENCE {
+    global-GNB-ID                  Global-GNB-ID,
+    gNB-Name                       GNB-Name OPTIONAL,
+    served-Cells-List              Served-Cells-List OPTIONAL
+}
+
+XnSetup-Failure ::= SEQUENCE {
+    cause                          Cause,
+    timeToWait                     TimeToWait OPTIONAL,
+    criticalityDiagnostics         CriticalityDiagnostics OPTIONAL
+}
+
+-- ============== Handover Preparation ==============
+
+Handover-Preparation-Request ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID,
+    handover-Type                  Handover-Type,
+    cause                          Cause,
+    uE-Context-Information         UE-Context-Information
+}
+
+Handover-Preparation-Failure ::= SEQUENCE {
+    cause                          Cause,
+    criticalityDiagnostics         CriticalityDiagnostics OPTIONAL
+}
+
+Handover-Request ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID,
+    handover-Type                  Handover-Type,
+    cause                          Cause,
+    uE-Context-Information         UE-Context-Information,
+    uEAggregateMaximumBitRate      UEAggregateMaximumBitRate OPTIONAL,
+    pDUSessionResource-List        PDUSessionResource-List OPTIONAL
+}
+
+Handover-Request-Acknowledge ::= SEQUENCE {
+    target-gNB-ID                  Global-GNB-ID,
+    pDUSessionResource-Admitted-List  PDUSessionResource-Admitted-List OPTIONAL,
+    pDUSessionResource-Failed-To-Setup-List  PDUSessionResource-Failed-To-Setup-List OPTIONAL,
+    target-ToSource-Transparent-Container  Target-ToSource-Transparent-Container,
+    criticalityDiagnostics         CriticalityDiagnostics OPTIONAL
+}
+
+Handover-Command ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID,
+    handover-Type                  Handover-Type,
+    target-ToSource-Transparent-Container  Target-ToSource-Transparent-Container
+}
+
+Handover-Notify ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID,
+    userLocation-Information       UserLocation-Information
+}
+
+Handover-Cancel ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID,
+    cause                          Cause
+}
+
+Handover-Cancel-Acknowledge ::= SEQUENCE {
+    source-gNB-ID                  Global-GNB-ID,
+    target-gNB-ID                  Global-GNB-ID
+}
+
+-- ============== Handover Type ==============
+
+Handover-Type ::= ENUMERATED {
+    intra-NR,      -- intra-NR handover
+    inter-RAT      -- inter-RAT handover
+}
+
+-- ============== Paging ==============
+
+Paging ::= SEQUENCE {
+    uE-Paging-Identity             UE-Paging-Identity,
+    tAI-List                       TAI-List,
+    paging-DRX                     Paging-DRX OPTIONAL,
+    paging-Priority                Paging-Priority OPTIONAL,
+    uE-Radio-Capability-For-Paging  UE-Radio-Capability-For-Paging OPTIONAL
+}
+
+UE-Paging-Identity ::= CHOICE {
+    fiveG-S-TMSI                   FiveG-S-TMSI,
+    gUTI                           GUTI
+}
+
+FiveG-S-TMSI ::= SEQUENCE {
+    aMF-Set-ID                     AMF-Set-ID,
+    aMF-Pointer                    AMF-Pointer,
+    fiveG-TMSI                     FiveG-TMSI
+}
+
+AMF-Set-ID ::= BIT STRING (SIZE (10))
+AMF-Pointer ::= BIT STRING (SIZE (6))
+FiveG-TMSI ::= BIT STRING (SIZE (32))
+
+GUTI ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    aMF-Region-ID                  AMF-Region-ID,
+    aMF-Set-ID                     AMF-Set-ID,
+    aMF-Pointer                    AMF-Pointer,
+    fiveG-TMSI                     FiveG-TMSI
+}
+
+AMF-Region-ID ::= BIT STRING (SIZE (8))
+
+-- ============== UE Context ==============
+
+UE-Context-Information ::= SEQUENCE {
+    uE-Identity                    UE-Identity,
+    uE-Security-Capabilities       UE-Security-Capabilities OPTIONAL,
+    security-Key                   Security-Key OPTIONAL,
+    uE-Aggregate-Maximum-Bit-Rate  UEAggregateMaximumBitRate OPTIONAL,
+    rRC-Container                  RRC-Container OPTIONAL
+}
+
+UE-Identity ::= CHOICE {
+    fiveG-S-TMSI                   FiveG-S-TMSI,
+    gUTI                           GUTI,
+    iMSI                           IMSI
+}
+
+IMSI ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    mSIN                           MSIN
+}
+
+MSIN ::= BIT STRING (SIZE (32..50))
+
+UE-Security-Capabilities ::= SEQUENCE {
+    nR-Encryption-Algorithms       NR-Encryption-Algorithms,
+    nR-Integrity-Protection-Algorithms  NR-Integrity-Protection-Algorithms,
+    eUTRA-Encryption-Algorithms    EUTRA-Encryption-Algorithms OPTIONAL,
+    eUTRA-Integrity-Protection-Algorithms  EUTRA-Integrity-Protection-Algorithms OPTIONAL
+}
+
+NR-Encryption-Algorithms ::= BIT STRING (SIZE (16))
+NR-Integrity-Protection-Algorithms ::= BIT STRING (SIZE (16))
+EUTRA-Encryption-Algorithms ::= BIT STRING (SIZE (16))
+EUTRA-Integrity-Protection-Algorithms ::= BIT STRING (SIZE (16))
+
+Security-Key ::= BIT STRING (SIZE (256))
+
+-- ============== PDU Session Resource ==============
+
+PDUSessionResource-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResource-Item
+
+PDUSessionResource-Item ::= SEQUENCE {
+    pDU-Session-ID                 PDU-Session-ID,
+    s-NSSAI                        S-NSSAI OPTIONAL,
+    pDU-Session-Type               PDU-Session-Type OPTIONAL,
+    qos-Flow-List                  QoS-Flow-List OPTIONAL,
+    dL-Forwarding                  ENUMERATED {true} OPTIONAL
+}
+
+PDU-Session-ID ::= INTEGER (0..255)
+
+PDU-Session-Type ::= ENUMERATED {
+    ipv4,
+    ipv6,
+    ipv4v6,
+    unstructured,
+    ethernet
+}
+
+S-NSSAI ::= SEQUENCE {
+    sST                            OCTET STRING (SIZE (1)),
+    sD                             OCTET STRING (SIZE (3)) OPTIONAL
+}
+
+QoS-Flow-List ::= SEQUENCE (SIZE (1..64)) OF QoS-Flow-Item
+
+QoS-Flow-Item ::= SEQUENCE {
+    qos-Flow-Identifier            QosFlowIdentifier,
+    qos-Flow-Level-QoS-Parameters  QoS-Flow-Level-QoS-Parameters
+}
+
+QosFlowIdentifier ::= INTEGER (0..63)
+
+QoS-Flow-Level-QoS-Parameters ::= SEQUENCE {
+    qos-Characteristics            QoS-Characteristics,
+    allocation-and-Retention-Priority  Allocation-and-Retention-Priority
+}
+
+QoS-Characteristics ::= CHOICE {
+    non-Dynamic-5QI-Descriptor     Non-Dynamic-5QI-Descriptor,
+    dynamic-5QI-Descriptor         Dynamic-5QI-Descriptor
+}
+
+Non-Dynamic-5QI-Descriptor ::= SEQUENCE {
+    five-QI                        INTEGER (0..255)
+}
+
+Dynamic-5QI-Descriptor ::= SEQUENCE {
+    priority-Level                 Priority-Level,
+    packet-Delay-Budget            Packet-Delay-Budget,
+    packet-Error-Rate              Packet-Error-Rate
+}
+
+Allocation-and-Retention-Priority ::= SEQUENCE {
+    priority-Level                 Priority-Level,
+    pre-Emption-Capability         Pre-Emption-Capability,
+    pre-Emption-Vulnerability      Pre-Emption-Vulnerability
+}
+
+Priority-Level ::= INTEGER (0..127)
+Pre-Emption-Capability ::= ENUMERATED {shall-not-trigger-pre-emption, may-trigger-pre-emption}
+Pre-Emption-Vulnerability ::= ENUMERATED {not-pre-emptable, pre-emptable}
+Packet-Delay-Budget ::= INTEGER (0..1023)
+Packet-Error-Rate ::= SEQUENCE {
+    packet-Error-Rate-Value        INTEGER (0..9),
+    packet-Error-Rate-Exponent     INTEGER (0..9)
+}
+
+PDUSessionResource-Admitted-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResource-Admitted-Item
+
+PDUSessionResource-Admitted-Item ::= SEQUENCE {
+    pDU-Session-ID                 PDU-Session-ID,
+    dL-UP-Transport-Information    DL-UP-Transport-Information OPTIONAL,
+    uL-UP-Transport-Information    UL-UP-Transport-Information OPTIONAL
+}
+
+PDUSessionResource-Failed-To-Setup-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResource-Failed-To-Setup-Item
+
+PDUSessionResource-Failed-To-Setup-Item ::= SEQUENCE {
+    pDU-Session-ID                 PDU-Session-ID,
+    cause                          Cause
+}
+
+-- ============== UP Transport ==============
+
+DL-UP-Transport-Information ::= UP-Transport-Information
+UL-UP-Transport-Information ::= UP-Transport-Information
+
+UP-Transport-Information ::= SEQUENCE {
+    gTP-Tunnel                     GTP-Tunnel
+}
+
+GTP-Tunnel ::= SEQUENCE {
+    transport-Layer-Address        Transport-Layer-Address,
+    gTP-TEID                       GTP-TEID
+}
+
+Transport-Layer-Address ::= BIT STRING (SIZE (1..160))
+GTP-TEID ::= OCTET STRING (SIZE (4))
+
+-- ============== Common Types ==============
+
+Global-GNB-ID ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    gNB-ID                         GNB-ID
+}
+
+GNB-Name ::= PrintableString (SIZE (1..150))
+
+TimeToWait ::= ENUMERATED {
+    v1s, v2s, v5s, v10s, v20s, v60s, v120s, v300s, v600s
+}
+
+UEAggregateMaximumBitRate ::= SEQUENCE {
+    uEAggregateMaximumBitRate-UL   BitRate,
+    uEAggregateMaximumBitRate-DL   BitRate
+}
+
+BitRate ::= BIT STRING (SIZE (1..256))
+
+RRC-Container ::= OCTET STRING
+
+Target-ToSource-Transparent-Container ::= OCTET STRING
+
+UserLocation-Information ::= CHOICE {
+    userLocation-Information-EUTRA  UserLocation-Information-EUTRA,
+    userLocation-Information-NR     UserLocation-Information-NR
+}
+
+UserLocation-Information-NR ::= SEQUENCE {
+    nR-CGI                         NR-CGI,
+    tAI                            TAI,
+    timeStamp                      TimeStamp OPTIONAL
+}
+
+TAI ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    tAC                            TAC
+}
+
+TAC ::= BIT STRING (SIZE (24))
+
+TimeStamp ::= OCTET STRING (SIZE (6))
+
+UserLocation-Information-EUTRA ::= SEQUENCE {
+    eUTRA-CGI                      EUTRA-CGI,
+    tAI                            TAI
+}
+
+EUTRA-CGI ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    eUTRA-Cell-Identity            EUTRA-Cell-Identity
+}
+
+EUTRA-Cell-Identity ::= BIT STRING (SIZE (28))
+
+Supported-PLMNs ::= SEQUENCE (SIZE (1..12)) OF PLMN-Identity
+
+Served-Cells-List ::= SEQUENCE (SIZE (1..512)) OF Served-Cell-Information
+
+Served-Cell-Information ::= SEQUENCE {
+    nR-CGI                         NR-CGI OPTIONAL,
+    physical-Cell-ID               Physical-Cell-ID,
+    tAC                            TAC,
+    broadcast-PLMNs                Broadcast-PLMNs OPTIONAL
+}
+
+Broadcast-PLMNs ::= SEQUENCE (SIZE (1..12)) OF Broadcast-PLMN-Item
+
+Broadcast-PLMN-Item ::= SEQUENCE {
+    pLMN-Identity                  PLMN-Identity,
+    tAI-List                       TAI-List OPTIONAL
+}
+
+TAI-List ::= SEQUENCE (SIZE (1..16)) OF TAI
+
+Paging-DRX ::= ENUMERATED {
+    v32, v64, v128, v256
+}
+
+Paging-Priority ::= ENUMERATED {
+    prio1, prio2, prio3, prio4, prio5, prio6, prio7, prio8
+}
+
+UE-Radio-Capability-For-Paging ::= OCTET STRING
+
+END

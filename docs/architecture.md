@@ -34,6 +34,8 @@ The 5G UE Simulation application is designed as a modular, thread-safe C applica
 - Entry point and command-line argument parsing
 - Application lifecycle management
 - Global resource initialization and cleanup
+- Mock environment lifecycle management (`--with-mock` flag)
+- Test mode execution (`--test` flag)
 
 **Memory Management (src/core/memory.*)**
 - Custom memory pool implementation
@@ -58,7 +60,51 @@ The 5G UE Simulation application is designed as a modular, thread-safe C applica
 - Data processing and forwarding
 - Quality of Service (QoS) handling
 
-### 3. Transport Layer
+### 3. Mock Core Network (src/mock_core/)
+
+**Mock Core Network Server (src/mock_core/mock_core_server.*)**
+- Unified server for all mock components
+- Multi-threaded connection handling
+- Component lifecycle management
+- Statistics and monitoring
+
+**Mock AMF (src/mock_core/mock_amf.*)**
+- Access and Mobility Management Function simulation
+- NGAP message handling
+- Registration/deregistration procedures
+- UE context management
+
+**Mock SMF (src/mock_core/mock_smf.*)**
+- Session Management Function simulation
+- PDU session establishment/modification/release
+- QoS flow management
+
+**Mock UPF (src/mock_core/mock_upf.*)**
+- User Plane Function simulation
+- GTP-U packet forwarding
+- Data plane handling
+
+**Mock CU-CP (src/mock_core/mock_cu_cp.*)**
+- Central Unit - Control Plane simulation
+- F1-C interface handling
+- RRC message processing
+
+**Mock DU (src/mock_core/mock_du.*)**
+- Distributed Unit simulation
+- F1-U interface handling
+- Lower layer processing
+
+**Mock CU-UP (src/mock_core/mock_cu_up.*)**
+- Central Unit - User Plane simulation
+- F1-U and E1 interface handling
+- PDCP/SDAP processing
+
+**Mock XnAP (src/mock_core/mock_xnap.*)**
+- Xn Application Protocol simulation
+- Inter-gNB communication
+- Handover support
+
+### 4. Transport Layer
 
 **Socket Manager (src/transport/socket_mgr.*)**
 - NGAP/SCTP socket handling
@@ -71,7 +117,7 @@ The 5G UE Simulation application is designed as a modular, thread-safe C applica
 - Thread-safe data queuing
 - Flow control mechanisms
 
-### 4. User Interface
+### 5. User Interface
 
 **CLI Interface (src/cli/cli.*)**
 - Command parsing and execution
@@ -79,7 +125,7 @@ The 5G UE Simulation application is designed as a modular, thread-safe C applica
 - Status reporting
 - Scenario execution
 
-### 5. System Services
+### 6. System Services
 
 **Threading System**
 - Thread pool implementation

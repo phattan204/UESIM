@@ -144,7 +144,9 @@ typedef enum {
     UESIM_ERROR_CAPACITY = -11,
     UESIM_ERROR_KEY_REFRESH_REQUIRED = -12,
     UESIM_ERROR_MAX_RETRIES = -13,
-    UESIM_ERROR_RETRY = -14
+    UESIM_ERROR_RETRY = -14,
+    UESIM_ERROR_INIT = -15,
+    UESIM_ERROR_TEST_FAILED = -16
 } uesim_error_t;
 
 /* RRC States */
@@ -451,6 +453,11 @@ const ue_capabilities_t* ue_get_capabilities(ue_context_t* ue_ctx);
 uesim_error_t ue_update_stats(ue_context_t* ue_ctx);
 uesim_error_t ue_reset_stats(ue_context_t* ue_ctx);
 const ue_stats_t* ue_get_stats(ue_context_t* ue_ctx);
+
+/* UE Registry Accessors (for I/O thread) */
+ue_context_t** uesim_get_ue_instances(void);
+int uesim_get_ue_instance_count(void);
+int uesim_get_active_ue_count(void);
 
 /* Platform-specific initialization */
 #ifdef _WIN32

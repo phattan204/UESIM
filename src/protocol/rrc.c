@@ -1254,49 +1254,251 @@ const char* rrc_error_cause_to_string(rrc_error_cause_t cause) {
 
 /* ============== Message Encoding/Decoding ============== */
 
+/*
+ * RRC Message Format (3GPP TS 38.331 compliant):
+ * 
+ * For RRCSetupRequest (UL-CCCH-Message):
+ *   - Message Type: 1 byte (identifies RRCSetupRequest)
+ *   - Transaction ID: 1 byte (for matching request/response)
+ *   - Establishment Cause: 3 bits
+ *   - UE Identity Type: 1 bit (0 = random value)
+ *   - UE Identity Value: 39 bits
+ *   - Spare: 1 bit
+ *   Total: ~6 bytes (byte-aligned)
+ *
+ * This format is Wireshark-dissectable and comparable with real gNB captures.
+ */
+
 uesim_error_t rrc_encode_message(rrc_message_t* message, void** encoded_data, size_t* encoded_length) {
     if (message == NULL || encoded_data == NULL || encoded_length == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    /* Calculate encoded length */
-    size_t length = sizeof(rrc_message_type_t) + sizeof(uint32_t) * 2 + sizeof(size_t);
-    if (message->data_length > 0) {
-        length += message->data_length;
+    asn1_buffer_t buf;
+    uesim_error_t result;
+    
+    /* Allocate buffer for encoded message */
+    result = asn1_buffer_alloc(&buf, 256);
+    if (result != UESIM_SUCCESS) {
+        return result;
     }
     
-    /* Allocate memory for encoded data */
-    void* data = uesim_malloc(length);
-    if (data == NULL) {
-        return UESIM_ERROR_MEMORY;
+    /* Encode based on message type using 3GPP ASN.1 PER */
+    switch (message->message_type) {
+        case RRC_MESSAGE_TYPE_SETUP_REQUEST: {
+            /* RRCSetupRequest - 3GPP TS 38.331 */
+            rrc_setup_request_data_t* req_data = (rrc_setup_request_data_t*)message->data;
+            rrc_setup_request_t asn1_msg = {0};
+            
+            /* Map from internal format to ASN.1 format */
+            if (req_data != NULL) {
+                asn1_msg.ue_identity.type = 0; /* random value */
+                asn1_msg.ue_identity.random_value = req_data->ue_identity;
+                asn1_msg.establishment_cause = (rrc_establishment_cause_t)req_data->establishment_cause;
+            } else {
+                /* Use defaults */
+                asn1_msg.ue_identity.type = 0;
+                asn1_msg.ue_identity.random_value = ((uint64_t)rand() << 32) | rand();
+                asn1_msg.establishment_cause = RRC_EST_CAUSE_MO_SIGNALLING;
+            }
+            
+            /* Encode using ASN.1 PER */
+            result = rrc_encode_setup_request(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_SETUP_COMPLETE: {
+            /* RRCSetupComplete - 3GPP TS 38.331 */
+            rrc_setup_complete_data_t* complete_data = (rrc_setup_complete_data_t*)message->data;
+            rrc_setup_complete_t asn1_msg = {0};
+            
+            if (complete_data != NULL) {
+                asn1_msg.rrc_transaction_id = complete_data->rrc_transaction_id;
+                asn1_msg.selected_plmn = complete_data->selected_plmn;
+                if (complete_data->nas_pdu_len > 0) {
+                    memcpy(asn1_msg.nas_pdu, complete_data->nas_pdu, 
+                           complete_data->nas_pdu_len < sizeof(asn1_msg.nas_pdu) ? 
+                           complete_data->nas_pdu_len : sizeof(asn1_msg.nas_pdu));
+                    asn1_msg.nas_pdu_len = complete_data->nas_pdu_len;
+                }
+            }
+            
+            result = rrc_encode_setup_complete(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_REESTABLISHMENT_REQUEST: {
+            /* RRCReestablishmentRequest */
+            rrc_reest_request_data_t* reest_data = (rrc_reest_request_data_t*)message->data;
+            rrc_reest_request_t asn1_msg = {0};
+            
+            if (reest_data != NULL) {
+                asn1_msg.ue_identity.type = 0;
+                asn1_msg.ue_identity.random_value = ((uint64_t)rand() << 32) | rand();
+                asn1_msg.reestablishment_cause = (rrc_reestablishment_cause_t)reest_data->reestablishment_cause;
+                asn1_msg.pci = reest_data->pci;
+                asn1_msg.c_rnti = reest_data->c_rnti;
+            }
+            
+            result = rrc_encode_reest_request(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_RECONFIGURATION_COMPLETE: {
+            /* RRCReconfigurationComplete */
+            rrc_reconfig_data_t* reconfig_data = (rrc_reconfig_data_t*)message->data;
+            rrc_reconfig_complete_t asn1_msg = {0};
+            
+            if (reconfig_data != NULL) {
+                asn1_msg.rrc_transaction_id = reconfig_data->rrc_transaction_id;
+            }
+            
+            result = rrc_encode_reconfig_complete(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_MEASUREMENT_REPORT: {
+            /* RRCMeasurementReport */
+            rrc_meas_report_data_t* meas_data = (rrc_meas_report_data_t*)message->data;
+            rrc_measurement_report_t asn1_msg = {0};
+            
+            if (meas_data != NULL) {
+                asn1_msg.meas_id = meas_data->meas_id;
+                asn1_msg.rsrp = meas_data->rsrp;
+                asn1_msg.rsrq = meas_data->rsrq;
+                asn1_msg.pci = meas_data->pci;
+                asn1_msg.cell_id = meas_data->cell_id;
+            }
+            
+            result = rrc_encode_measurement_report(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_REESTABLISHMENT_COMPLETE: {
+            /* RRCReestablishmentComplete - 3GPP TS 38.331 */
+            rrc_reest_complete_t asn1_msg = {0};
+            asn1_msg.rrc_transaction_id = (uint8_t)(message->transaction_id & 0x03);
+            
+            result = rrc_encode_reest_complete(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_HANDOVER_CONFIRMATION: {
+            /* RRCHandoverConfirmation - 3GPP TS 38.331 */
+            rrc_handover_confirm_t asn1_msg = {0};
+            asn1_msg.rrc_transaction_id = (uint8_t)(message->transaction_id & 0x03);
+            
+            result = rrc_encode_handover_confirm(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_UE_CAPABILITY_INFORMATION: {
+            /* RRCUECapabilityInformation - 3GPP TS 38.331 */
+            rrc_ue_cap_data_t* cap_data = (rrc_ue_cap_data_t*)message->data;
+            rrc_ue_cap_info_t asn1_msg = {0};
+            
+            if (cap_data != NULL) {
+                asn1_msg.rat_type = cap_data->rat_type;
+                if (cap_data->container_len > 0) {
+                    memcpy(asn1_msg.capability_container, cap_data->capability_container,
+                           cap_data->container_len < sizeof(asn1_msg.capability_container) ?
+                           cap_data->container_len : sizeof(asn1_msg.capability_container));
+                    asn1_msg.container_len = cap_data->container_len;
+                }
+            }
+            
+            result = rrc_encode_ue_cap_info(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_HANDOVER_PREPARATION: {
+            /* RRCHandoverPreparation - 3GPP TS 38.331 */
+            rrc_meas_report_data_t* ho_data = (rrc_meas_report_data_t*)message->data;
+            rrc_handover_prep_t asn1_msg = {0};
+            
+            if (ho_data != NULL) {
+                asn1_msg.meas_id = ho_data->meas_id;
+                asn1_msg.rsrp = ho_data->rsrp;
+                asn1_msg.rsrq = ho_data->rsrq;
+                asn1_msg.pci = ho_data->pci;
+                asn1_msg.cell_id = ho_data->cell_id;
+            }
+            
+            result = rrc_encode_handover_prep(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        case RRC_MESSAGE_TYPE_SECURITY_MODE_COMPLETE: {
+            /* RRCSecurityModeComplete - 3GPP TS 38.331 */
+            rrc_security_mode_complete_t asn1_msg = {0};
+            asn1_msg.rrc_transaction_id = (uint8_t)(message->transaction_id & 0x03);
+            
+            result = rrc_encode_security_mode_complete(&buf, &asn1_msg);
+            if (result != UESIM_SUCCESS) {
+                asn1_buffer_free(&buf);
+                return result;
+            }
+            break;
+        }
+        
+        default: {
+            /* For other message types, use simple header format */
+            /* Message format: [type:1][trans_id:1][data_len:2][data] */
+            uint8_t header[4];
+            header[0] = (uint8_t)message->message_type;
+            header[1] = (uint8_t)message->transaction_id;
+            uint16_t data_len = (uint16_t)(message->data_length > 65535 ? 65535 : message->data_length);
+            header[2] = (data_len >> 8) & 0xFF;
+            header[3] = data_len & 0xFF;
+            
+            asn1_encode_octet_string(&buf, header, 4);
+            if (message->data_length > 0 && message->data != NULL) {
+                asn1_encode_octet_string(&buf, (const uint8_t*)message->data, data_len);
+            }
+            break;
+        }
     }
     
-    /* Encode message (simplified format) */
-    uint8_t* ptr = (uint8_t*)data;
-    
-    /* Copy message type */
-    memcpy(ptr, &message->message_type, sizeof(rrc_message_type_t));
-    ptr += sizeof(rrc_message_type_t);
-    
-    /* Copy message ID */
-    memcpy(ptr, &message->message_id, sizeof(uint32_t));
-    ptr += sizeof(uint32_t);
-    
-    /* Copy transaction ID */
-    memcpy(ptr, &message->transaction_id, sizeof(uint32_t));
-    ptr += sizeof(uint32_t);
-    
-    /* Copy data length */
-    memcpy(ptr, &message->data_length, sizeof(size_t));
-    ptr += sizeof(size_t);
-    
-    /* Copy data */
-    if (message->data_length > 0 && message->data != NULL) {
-        memcpy(ptr, message->data, message->data_length);
-    }
-    
-    *encoded_data = data;
-    *encoded_length = length;
+    *encoded_length = asn1_buffer_length(&buf);
+    *encoded_data = buf.data;
+    buf.own_data = false; /* Transfer ownership to caller */
+    asn1_buffer_free(&buf);
     
     return UESIM_SUCCESS;
 }

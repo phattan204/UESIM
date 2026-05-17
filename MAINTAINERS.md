@@ -4,7 +4,7 @@
 
 | Name | GitHub | Email | Areas of Expertise | Time Zone |
 |------|--------|-------|-------------------|-----------|
-| Telecom Software Developer | @developer | developer@example.com | Core architecture, 5G protocols, C systems programming | UTC+7 |
+| Telecom Software Developer | @Nguyen Van Tan Phat | nvtphat204@example.com | Core architecture, 5G protocols, C systems programming | UTC+7 |
 
 ## Maintainer Responsibilities
 

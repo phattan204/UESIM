@@ -36,7 +36,17 @@ make BUILD_TYPE=debug   # Debug build (produces uesim-debug.exe)
 | `-v` | `--verbose` | - | Enable verbose logging |
 | `-d` | `--debug` | - | Enable debug mode |
 | `-I` | `--interactive` | - | Start interactive CLI |
+| `-M` | `--with-mock` | - | Start mock components with interactive mode |
 | `-h` | `--help` | - | Show help message |
+
+## Test Mode Options
+
+| Option | Long Form | Argument | Description |
+|--------|-----------|----------|-------------|
+| `-t` | `--test-mode` | - | Enable test mode with mock core/gNB |
+| `-s` | `--test-scenario` | FILE | Test scenario file (JSON) |
+| `-u` | `--test-ues` | N | Number of test UEs (default: 1) |
+| `-r` | `--test-report` | FILE | Test report output file |
 
 ## Component Overview
 
@@ -547,6 +557,38 @@ EOF
 # > start
 # > stop
 # > exit
+```
+
+### Interactive Mode with Mock Components
+
+```bash
+# Start interactive mode with mock core and gNB
+./uesim -I --with-mock
+
+# Or short form
+./uesim -I -M
+
+# Inside interactive mode:
+uesim> ue start 5
+uesim> scenario run registration
+uesim> status
+uesim> exit
+```
+
+### Test Mode with Mock Components
+
+```bash
+# Run automated test with 5 UEs
+./uesim -t -u 5
+
+# Run test with scenario file
+./uesim -t -s scenarios/registration_scenario.json -u 10
+
+# Run test and generate report
+./uesim -t -u 5 -r test_report.txt
+
+# Full test with all options
+./uesim -t -u 10 -s scenarios/handover_scenario.json -r results.txt
 ```
 
 ### Performance Benchmark

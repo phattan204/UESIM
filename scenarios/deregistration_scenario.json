@@ -1,0 +1,299 @@
+{
+  "scenario_name": "Deregistration",
+  "description": "5G Deregistration procedure - UE or Network initiated",
+  "3gpp_reference": "3GPP TS 23.502 Section 4.2.2.2",
+  "interfaces": ["N1 (NAS)", "N2 (NGAP)", "N3 (GTP-U)", "N4 (PFCP)"],
+  "capture_command": "sudo tcpdump -i any -w deregistration.pcap 'port 38412 or port 2152'",
+  "wireshark_filter": "ngap || gtp || nas-5gs || pfcp",
+  
+  "message_flow_ue_initiated": [
+    {
+      "step": 1,
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "ULInformationTransfer",
+      "description": "UE sends deregistration request in NAS PDU",
+      "3gpp_spec": "TS 38.331 Section 5.7.3",
+      "nas_content": {
+        "message_type": "Deregistration Request (UE Originated)",
+        "deregistration_type": "normal_deregistration",
+        "access_type": "3GPP_ACCESS"
+      }
+    },
+    {
+      "step": 2,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UplinkNASTransport",
+      "description": "gNB forwards deregistration request to AMF",
+      "3gpp_spec": "TS 38.413 Section 8.6",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "NAS-PDU (Deregistration Request)",
+        "UserLocationInformation"
+      ]
+    },
+    {
+      "step": 3,
+      "direction": "AMF -> SMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "POST /nsmf-pdusession/v1/sm-contexts/{smContextId}/release",
+      "description": "AMF requests SMF to release all PDU sessions",
+      "3gpp_spec": "TS 29.502 Section 5.1",
+      "json_payload": {
+        "cause": "Deregistration",
+        "access_type": "3GPP_ACCESS"
+      }
+    },
+    {
+      "step": 4,
+      "direction": "SMF -> UPF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Deletion Request",
+      "description": "SMF requests UPF to delete session for each PDU session",
+      "3gpp_spec": "TS 29.244 Section 7.6",
+      "pfcp_ies": [
+        "Node ID",
+        "F-SEID"
+      ]
+    },
+    {
+      "step": 5,
+      "direction": "UPF -> SMF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Deletion Response",
+      "description": "UPF confirms session deletion",
+      "pfcp_ies": [
+        "Node ID",
+        "Cause (Success)"
+      ]
+    },
+    {
+      "step": 6,
+      "direction": "UPF -> gNB",
+      "interface": "N3",
+      "protocol": "GTP-U",
+      "message": "End Marker",
+      "description": "UPF sends end marker for each GTP tunnel",
+      "3gpp_spec": "TS 29.281 Section 5.1"
+    },
+    {
+      "step": 7,
+      "direction": "SMF -> AMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "204 No Content",
+      "description": "SMF confirms PDU session release"
+    },
+    {
+      "step": 8,
+      "direction": "AMF -> gNB",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UEContextReleaseCommand",
+      "description": "AMF commands gNB to release UE context",
+      "3gpp_spec": "TS 38.413 Section 8.3",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "Cause (nas: normal-release)"
+      ]
+    },
+    {
+      "step": 9,
+      "direction": "gNB -> UE",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "RRCRelease",
+      "description": "gNB releases RRC connection",
+      "3gpp_spec": "TS 38.331 Section 5.3.8",
+      "rrc_content": {
+        "release_cause": "rrc-connection-release",
+        "redirected_carrier": "optional"
+      }
+    },
+    {
+      "step": 10,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UEContextReleaseComplete",
+      "description": "gNB confirms UE context release",
+      "3gpp_spec": "TS 38.413 Section 8.3",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "UserLocationInformation"
+      ]
+    },
+    {
+      "step": 11,
+      "direction": "AMF -> UE",
+      "interface": "N1",
+      "protocol": "NAS",
+      "message": "Deregistration Accept",
+      "description": "AMF sends deregistration accept (if UE was registered)",
+      "3gpp_spec": "TS 24.501 Section 5.4.4"
+    }
+  ],
+  
+  "message_flow_network_initiated": [
+    {
+      "step": 1,
+      "direction": "AMF -> gNB",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "DownlinkNASTransport",
+      "description": "AMF sends deregistration request to UE",
+      "3gpp_spec": "TS 38.413 Section 8.7",
+      "nas_content": {
+        "message_type": "Deregistration Request (Network Originated)",
+        "deregistration_type": "re-registration-required",
+        "access_type": "3GPP_ACCESS"
+      }
+    },
+    {
+      "step": 2,
+      "direction": "gNB -> UE",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "DLInformationTransfer",
+      "description": "gNB forwards deregistration request to UE",
+      "3gpp_spec": "TS 38.331 Section 5.7.2"
+    },
+    {
+      "step": 3,
+      "direction": "UE -> gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "ULInformationTransfer",
+      "description": "UE sends deregistration accept",
+      "nas_content": {
+        "message_type": "Deregistration Accept (UE Terminated)"
+      }
+    },
+    {
+      "step": 4,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UplinkNASTransport",
+      "description": "gNB forwards deregistration accept to AMF"
+    },
+    {
+      "step": 5,
+      "direction": "AMF -> SMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "POST /nsmf-pdusession/v1/sm-contexts/{smContextId}/release",
+      "description": "AMF requests SMF to release PDU sessions"
+    },
+    {
+      "step": 6,
+      "direction": "AMF -> gNB",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UEContextReleaseCommand",
+      "description": "AMF commands gNB to release UE context"
+    },
+    {
+      "step": 7,
+      "direction": "gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "UEContextReleaseComplete",
+      "description": "gNB confirms UE context release"
+    }
+  ],
+  
+  "deregistration_types": {
+    "normal_deregistration": {
+      "description": "UE powers off or user requests deregistration",
+      "ue_state_after": "RM-DEREGISTERED",
+      "amf_behavior": "Release all contexts and sessions"
+    },
+    "switch_off": {
+      "description": "UE switched off without signaling",
+      "ue_state_after": "RM-DEREGISTERED",
+      "amf_behavior": "Network detects and releases contexts"
+    },
+    "re_registration_required": {
+      "description": "Network requires UE to re-register",
+      "ue_state_after": "RM-DEREGISTERED (immediate re-registration)",
+      "amf_behavior": "Used for authentication failure, sync failure, etc."
+    },
+    "disable_5g": {
+      "description": "UE disables 5G access",
+      "ue_state_after": "RM-DEREGISTERED for 3GPP access",
+      "amf_behavior": "Release only 3GPP access contexts"
+    }
+  },
+  
+  "cleanup_procedures": {
+    "pdu_session_release": {
+      "description": "All active PDU sessions are released",
+      "smf_actions": [
+        "Delete PFCP sessions at UPF",
+        "Release IP addresses to pool",
+        "Notify PCF for policy cleanup"
+      ]
+    },
+    "n2_connection_release": {
+      "description": "NGAP connection between gNB and AMF is released",
+      "gnb_actions": [
+        "Release RRC connection",
+        "Release DRB/SRB resources",
+        "Release GTP-U tunnels"
+      ]
+    },
+    "amf_context_cleanup": {
+      "description": "AMF cleans up UE context",
+      "amf_actions": [
+        "Delete UE context",
+        "Release GUAMI if assigned",
+        "Notify UDM for subscription data cleanup"
+      ]
+    }
+  },
+  
+  "failure_scenarios": {
+    "ue_not_responding": {
+      "description": "UE does not respond to deregistration request",
+      "amf_action": "AMF may use implicit deregistration timer"
+    },
+    "gnb_failure": {
+      "description": "gNB failure during deregistration",
+      "amf_action": "AMF proceeds with context cleanup locally"
+    },
+    "smf_timeout": {
+      "description": "SMF does not respond to session release",
+      "amf_action": "AMF may proceed with local cleanup after timeout"
+    }
+  },
+  
+  "implicit_deregistration": {
+    "trigger": "Implicit Deregistration timer expiry",
+    "timer_name": "Mobile Reachable Timer",
+    "default_value": "54 minutes (4 minutes + default periodic registration timer)",
+    "procedure": [
+      "AMF starts implicit deregistration",
+      "SMF releases all PDU sessions",
+      "UPF releases all tunnels",
+      "UE context is removed from AMF"
+    ]
+  },
+  
+  "notes": [
+    "UE-initiated deregistration is used when UE powers off gracefully",
+    "Network-initiated deregistration can trigger re-registration",
+    "All PDU sessions must be released before UE context release",
+    "End marker packets ensure proper data flow termination",
+    "Implicit deregistration handles non-responsive UEs"
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "scenario_name": "Xn Handover",
+  "description": "5G Xn-based Handover procedure between gNBs",
+  "3gpp_reference": "3GPP TS 23.502 Section 4.9.1",
+  "interfaces": ["Xn (XnAP)", "N2 (NGAP)", "N3 (GTP-U)"],
+  "capture_command": "sudo tcpdump -i any -w handover.pcap 'port 38412 or port 2152 or port 38422'",
+  "wireshark_filter": "ngap || xn || gtp || nas-5gs",
+  
+  "message_flow": [
+    {
+      "step": 1,
+      "direction": "UE -> Source gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "MeasurementReport",
+      "description": "UE sends measurement report indicating target cell quality",
+      "3gpp_spec": "TS 38.331 Section 5.5.4",
+      "measurement_content": {
+        "meas_id": 1,
+        "meas_result": {
+          "cell_id": "target_cell_123",
+          "rsrp": -75,
+          "rsrq": -10
+        }
+      }
+    },
+    {
+      "step": 2,
+      "direction": "Source gNB -> Target gNB",
+      "interface": "Xn",
+      "protocol": "XnAP",
+      "message": "HANDOVER REQUEST",
+      "description": "Source gNB initiates handover to target gNB",
+      "3gpp_spec": "TS 38.423 Section 8.1",
+      "ie_list": [
+        "Source NG-RAN Node UE XnAP ID",
+        "UE Context",
+        "PDU Session Resources",
+        "RRC Container (HandoverPreparationInformation)"
+      ]
+    },
+    {
+      "step": 3,
+      "direction": "Target gNB -> Source gNB",
+      "interface": "Xn",
+      "protocol": "XnAP",
+      "message": "HANDOVER REQUEST ACKNOWLEDGE",
+      "description": "Target gNB accepts handover and provides resources",
+      "3gpp_spec": "TS 38.423 Section 8.2",
+      "ie_list": [
+        "Source NG-RAN Node UE XnAP ID",
+        "Target NG-RAN Node UE XnAP ID",
+        "PDU Session Resources Admitted List",
+        "RRC Container (HandoverCommand)"
+      ],
+      "rrc_content": {
+        "handover_type": "intra-NR",
+        "target_pci": 456,
+        "target_cell_id": "target_cell_123",
+        "new_c_rnti": 12345,
+        "drb_config": "same_as_source"
+      }
+    },
+    {
+      "step": 4,
+      "direction": "Source gNB -> UE",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "RRCReconfiguration (HandoverCommand)",
+      "description": "Source gNB sends handover command to UE",
+      "3gpp_spec": "TS 38.331 Section 5.3.5",
+      "rrc_content": {
+        "handover_command": {
+          "target_pci": 456,
+          "target_cell_id": "target_cell_123",
+          "new_c_rnti": 12345,
+          "access_stratum_config": "included"
+        }
+      }
+    },
+    {
+      "step": 5,
+      "direction": "UE -> Target gNB",
+      "interface": "Uu",
+      "protocol": "RRC",
+      "message": "RRCReconfigurationComplete",
+      "description": "UE completes handover to target gNB",
+      "3gpp_spec": "TS 38.331 Section 5.3.5"
+    },
+    {
+      "step": 6,
+      "direction": "Target gNB -> AMF",
+      "interface": "N2",
+      "protocol": "NGAP",
+      "message": "HANDOVER NOTIFY",
+      "description": "Target gNB notifies AMF of successful handover",
+      "3gpp_spec": "TS 38.413 Section 8.11",
+      "ie_list": [
+        "RAN-UE-NGAP-ID",
+        "AMF-UE-NGAP-ID",
+        "UserLocationInformation",
+        "PDUSessionResourceNotifyList"
+      ]
+    },
+    {
+      "step": 7,
+      "direction": "AMF -> SMF",
+      "interface": "N11",
+      "protocol": "HTTP/2",
+      "message": "POST /nsmf-pdusession/v1/sm-contexts/{smContextId}/modify",
+      "description": "AMF notifies SMF of handover completion",
+      "json_payload": {
+        "anType": "3GPP_ACCESS",
+        "servingNfId": "AMF-1",
+        "hoState": "COMPLETED"
+      }
+    },
+    {
+      "step": 8,
+      "direction": "SMF -> UPF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Modification Request",
+      "description": "SMF updates UPF with new gNB tunnel info",
+      "3gpp_spec": "TS 29.244 Section 7.5"
+    },
+    {
+      "step": 9,
+      "direction": "UPF -> SMF",
+      "interface": "N4",
+      "protocol": "PFCP",
+      "message": "Session Modification Response",
+      "description": "UPF confirms session modification"
+    },
+    {
+      "step": 10,
+      "direction": "UPF -> Source gNB",
+      "interface": "N3",
+      "protocol": "GTP-U",
+      "message": "End Marker",
+      "description": "UPF sends end marker to source gNB for each tunnel",
+      "3gpp_spec": "TS 29.281 Section 5.1"
+    },
+    {
+      "step": 11,
+      "direction": "Source gNB -> Target gNB",
+      "interface": "Xn",
+      "protocol": "XnAP",
+      "message": "SN STATUS TRANSFER",
+      "description": "Source gNB transfers SN status to target gNB",
+      "3gpp_spec": "TS 38.423 Section 8.4",
+      "ie_list": [
+        "Source NG-RAN Node UE XnAP ID",
+        "Target NG-RAN Node UE XnAP ID",
+        "DRB List (PDCP SN Status)",
+        "SRB List (PDCP SN Status)"
+      ]
+    },
+    {
+      "step": 12,
+      "direction": "Source gNB -> Target gNB",
+      "interface": "Xn",
+      "protocol": "XnAP",
+      "message": "UE CONTEXT RELEASE",
+      "description": "Source gNB releases UE context after successful handover",
+      "3gpp_spec": "TS 38.423 Section 8.5"
+    }
+  ],
+  
+  "handover_types": {
+    "xn_handover": {
+      "description": "Handover between gNBs connected via Xn interface",
+      "trigger": "UE measurement report",
+      "core_involvement": "Minimal - AMF notified after completion"
+    },
+    "n2_handover": {
+      "description": "Handover requiring Core Network involvement",
+      "trigger": "Xn handover not possible",
+      "core_involvement": "Full - AMF coordinates handover"
+    },
+    "ng_handover": {
+      "description": "Handover to another NG-RAN node via NG-C interface",
+      "trigger": "Inter-system handover",
+      "core_involvement": "Full"
+    }
+  },
+  
+  "measurement_triggers": {
+    "eventA3": {
+      "description": "Neighbor cell becomes better than serving cell",
+      "trigger": "Mn + Ocn > Mp + Ocp + Hys"
+    },
+    "eventA5": {
+      "description": "Serving becomes worse than threshold1 AND neighbor better than threshold2",
+      "trigger": "Mp + Ocp < Thresh1 AND Mn + Ocn > Thresh2"
+    }
+  },
+  
+  "failure_scenarios": {
+    "handover_preparation_failure": {
+      "cause": "Target gNB resource unavailable",
+      "ngap_cause": "radio-network: no-radio-resources-available"
+    },
+    "handover_execution_failure": {
+      "cause": "UE fails to connect to target cell",
+      "recovery": "UE initiates RRC Reestablishment"
+    },
+    "handover_cancellation": {
+      "cause": "Source gNB cancels handover",
+      "ngap_message": "HANDOVER CANCEL"
+    }
+  },
+  
+  "notes": [
+    "Xn Handover is preferred when Xn interface exists between gNBs",
+    "Source gNB acts as anchor until path switch completes",
+    "End Marker packets signal end of data flow on old path",
+    "SN Status Transfer ensures PDCP continuity for DRBs",
+    "UE context at source is released only after successful handover"
+  ]
+}

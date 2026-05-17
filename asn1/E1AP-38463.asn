@@ -1,0 +1,436 @@
+-- 3GPP TS 38.463
+-- E1 Application Protocol (E1AP)
+-- ASN.1 Schema for Message Validation
+-- Version 17.4.0
+
+E1AP-38463 DEFINITIONS AUTOMATIC TAGS ::=
+
+BEGIN
+
+-- ============== Basic Types ==============
+
+GNB-CU-CP-UE-E1AP-ID ::= INTEGER (0..4294967295)  -- 32 bits
+GNB-CU-UP-UE-E1AP-ID ::= INTEGER (0..4294967295)  -- 32 bits
+
+GNB-CU-CP-ID ::= BIT STRING (SIZE (22..32))
+GNB-CU-UP-ID ::= BIT STRING (SIZE (22..32))
+
+PLMN-Identity ::= BIT STRING (SIZE (24))
+
+-- ============== E1AP PDU ==============
+
+E1AP-PDU ::= CHOICE {
+    initiatingMessage      InitiatingMessage,
+    successfulOutcome      SuccessfulOutcome,
+    unsuccessfulOutcome    UnsuccessfulOutcome
+}
+
+InitiatingMessage ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+SuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+UnsuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+OpenType ::= OCTET STRING
+
+Criticality ::= ENUMERATED {reject, ignore, notify}
+
+-- ============== Procedure Codes (TS 38.463 Section 9) ==============
+
+ProcedureCode ::= INTEGER {
+    id-E1Setup                              (1),
+    id-E1Reset                              (2),
+    id-ErrorIndication                      (3),
+    id-E1Removal                            (4),
+    id-gNB-CU-UP-Configuration-Update       (5),
+    id-gNB-CU-CP-Configuration-Update       (6),
+    id-BearerContextSetup                   (7),
+    id-BearerContextRelease                 (8),
+    id-BearerContextModification            (9),
+    id-BearerContextReleaseRequest          (10),
+    id-PDUSessionResourceSetup              (11),
+    id-PDUSessionResourceModification       (12),
+    id-PDUSessionResourceRelease            (13)
+} (1..13)
+
+-- ============== Cause Values ==============
+
+Cause ::= CHOICE {
+    radioNetwork      CauseRadioNetwork,
+    transport         CauseTransport,
+    protocol          CauseProtocol,
+    misc              CauseMisc,
+    ng-AndOr-Xn       CauseNGAndOrXn
+}
+
+CauseRadioNetwork ::= ENUMERATED {
+    unspecified                                (0),
+    normal-release                             (1),
+    radio-connection-with-UE-lost             (2),
+    rlf-detected                              (3),
+    handover-cancelled                        (4),
+    inactivity-timer-expired                  (5),
+    ue-not-responding                         (6),
+    duplicate-PDU-session-ID                  (7)
+}
+
+CauseTransport ::= ENUMERATED {
+    transport-resource-unavailable            (0),
+    unspecified                                (1)
+}
+
+CauseProtocol ::= ENUMERATED {
+    transfer-syntax-error                      (0),
+    abstract-syntax-error-reject               (1),
+    abstract-syntax-error-ignore-and-notify    (2),
+    message-not-compatible-with-receiver-state (3),
+    semantic-error                             (4),
+    unspecified                                (5)
+}
+
+CauseMisc ::= ENUMERATED {
+    control-processing-overload                (0),
+    not-enough-user-plane-processing-resources (1),
+    hardware-failure                           (2),
+    om-intervention                            (3),
+    unspecified                                (4)
+}
+
+CauseNGAndOrXn ::= ENUMERATED {
+    ng-unavailable,
+    xn-unavailable,
+    ng-and-xn-unavailable
+}
+
+-- ============== E1 Setup ==============
+
+E1Setup-Request ::= SEQUENCE {
+    gNB-CU-UP-ID                    GNB-CU-UP-ID,
+    gNB-CU-UP-Name                  GNB-CU-UP-Name OPTIONAL,
+    supported-PLMNs                 Supported-PLMNs,
+    gNB-CU-UP-Capacity              GNB-CU-UP-Capacity OPTIONAL,
+    gNB-CU-UP-TNLA-Setup-List       GNB-CU-UP-TNLA-Setup-List OPTIONAL
+}
+
+E1Setup-Response ::= SEQUENCE {
+    gNB-CU-CP-ID                    GNB-CU-CP-ID,
+    gNB-CU-CP-Name                  GNB-CU-CP-Name OPTIONAL,
+    supported-PLMNs                 Supported-PLMNs OPTIONAL
+}
+
+E1Setup-Failure ::= SEQUENCE {
+    cause                           Cause,
+    timeToWait                      TimeToWait OPTIONAL,
+    criticalityDiagnostics          CriticalityDiagnostics OPTIONAL
+}
+
+-- ============== Bearer Context Management ==============
+
+BearerContextSetup-Request ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID OPTIONAL,
+    security-Key                    Security-Key OPTIONAL,
+    uEAggregateMaximumBitRate       UEAggregateMaximumBitRate OPTIONAL,
+    rAN-UE-ID                       RAN-UE-ID OPTIONAL,
+    bearerContextSetup-List         BearerContextSetup-List
+}
+
+BearerContextSetup-Response ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    bearerContextSetup-List         BearerContextSetup-List-Response,
+    bearerContextFailedToSetup-List BearerContextFailedToSetup-List OPTIONAL,
+    criticalityDiagnostics          CriticalityDiagnostics OPTIONAL
+}
+
+BearerContextSetup-Failure ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID OPTIONAL,
+    cause                           Cause,
+    criticalityDiagnostics          CriticalityDiagnostics OPTIONAL
+}
+
+BearerContextRelease-Command ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    cause                           Cause
+}
+
+BearerContextRelease-Complete ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    criticalityDiagnostics          CriticalityDiagnostics OPTIONAL
+}
+
+BearerContextRelease-Request ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    cause                           Cause
+}
+
+-- ============== PDU Session Resource ==============
+
+PDUSessionResourceSetup-Request ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID OPTIONAL,
+    pDUSessionResourceSetup-List    PDUSessionResourceSetup-List
+}
+
+PDUSessionResourceSetup-Response ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    pDUSessionResourceSetup-List    PDUSessionResourceSetup-List-Response OPTIONAL,
+    pDUSessionResourceFailedToSetup-List  PDUSessionResourceFailedToSetup-List OPTIONAL,
+    criticalityDiagnostics          CriticalityDiagnostics OPTIONAL
+}
+
+PDUSessionResourceRelease-Command ::= SEQUENCE {
+    gNB-CU-CP-UE-E1AP-ID            GNB-CU-CP-UE-E1AP-ID,
+    gNB-CU-UP-UE-E1AP-ID            GNB-CU-UP-UE-E1AP-ID,
+    pDUSessionResourceToRelease-List  PDUSessionResourceToRelease-List
+}
+
+-- ============== Bearer Context Structures ==============
+
+BearerContextSetup-List ::= SEQUENCE (SIZE (1..256)) OF BearerContextSetup-Item
+
+BearerContextSetup-Item ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    pDUSession-Type                 PDUSession-Type,
+    s-NSSAI                         S-NSSAI OPTIONAL,
+    uE-IP-Address                   UE-IP-Address OPTIONAL,
+    dRB-Setup-List                  DRB-Setup-List-Request OPTIONAL
+}
+
+BearerContextSetup-List-Response ::= SEQUENCE (SIZE (1..256)) OF BearerContextSetup-Item-Response
+
+BearerContextSetup-Item-Response ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    dRB-Setup-List                  DRB-Setup-List-Response OPTIONAL,
+    uL-UP-Transport-Information     UL-UP-Transport-Information OPTIONAL
+}
+
+BearerContextFailedToSetup-List ::= SEQUENCE (SIZE (1..256)) OF BearerContextFailedToSetup-Item
+
+BearerContextFailedToSetup-Item ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    cause                           Cause
+}
+
+-- ============== DRB Definitions ==============
+
+DRB-ID ::= INTEGER (1..32)
+
+DRB-Setup-List-Request ::= SEQUENCE (SIZE (1..32)) OF DRB-Setup-Item-Request
+
+DRB-Setup-Item-Request ::= SEQUENCE {
+    dRB-ID                          DRB-ID,
+    dRB-QoS                         DRB-QoS,
+    sDAP-Configuration              SDAP-Configuration OPTIONAL,
+    pDCP-Configuration              PDCP-Configuration OPTIONAL,
+    rLC-Mode                        RLC-Mode OPTIONAL,
+    uL-UP-Transport-Information     UL-UP-Transport-Information OPTIONAL,
+    dL-UP-Transport-Information     DL-UP-Transport-Information OPTIONAL
+}
+
+DRB-Setup-List-Response ::= SEQUENCE (SIZE (1..32)) OF DRB-Setup-Item-Response
+
+DRB-Setup-Item-Response ::= SEQUENCE {
+    dRB-ID                          DRB-ID,
+    dL-UP-Transport-Information     DL-UP-Transport-Information OPTIONAL,
+    uL-UP-Transport-Information     UL-UP-Transport-Information OPTIONAL
+}
+
+-- ============== QoS Information ==============
+
+DRB-QoS ::= SEQUENCE {
+    five-QI                         INTEGER (0..255),
+    aRP                             ARP,
+    gFBR-Up-Link                    BitRate OPTIONAL,
+    gFBR-Down-Link                  BitRate OPTIONAL,
+    mFBR-Up-Link                    BitRate OPTIONAL,
+    mFBR-Down-Link                  BitRate OPTIONAL
+}
+
+ARP ::= SEQUENCE {
+    priority-Level                  INTEGER (0..15),
+    pre-Emption-Capability          ENUMERATED {shall-not-trigger-pre-emption, may-trigger-pre-emption},
+    pre-Emption-Vulnerability       ENUMERATED {not-pre-emptable, pre-emptable}
+}
+
+BitRate ::= BIT STRING (SIZE (1..256))
+
+-- ============== PDU Session Types ==============
+
+PDUSession-ID ::= INTEGER (0..255)
+
+PDUSession-Type ::= ENUMERATED {
+    ipv4,
+    ipv6,
+    ipv4v6,
+    unstructured,
+    ethernet
+}
+
+S-NSSAI ::= SEQUENCE {
+    sST                             OCTET STRING (SIZE (1)),
+    sD                              OCTET STRING (SIZE (3)) OPTIONAL
+}
+
+UE-IP-Address ::= CHOICE {
+    ipv4-Address                    BIT STRING (SIZE (32)),
+    ipv6-Address                    BIT STRING (SIZE (128)),
+    ipv4-And-ipv6                   SEQUENCE {
+        ipv4                        BIT STRING (SIZE (32)),
+        ipv6                        BIT STRING (SIZE (128))
+    }
+}
+
+-- ============== SDAP Configuration ==============
+
+SDAP-Configuration ::= SEQUENCE {
+    sDAP-Header-UL                  ENUMERATED {present, not-present},
+    sDAP-Header-DL                  ENUMERATED {present, not-present},
+    default-DRB                     ENUMERATED {true} OPTIONAL,
+    mapped-QoS-Flow-List            Mapped-QoS-Flow-List OPTIONAL
+}
+
+Mapped-QoS-Flow-List ::= SEQUENCE (SIZE (1..64)) OF Mapped-QoS-Flow-Item
+
+Mapped-QoS-Flow-Item ::= SEQUENCE {
+    qoS-Flow-Identifier             QosFlowIdentifier
+}
+
+QosFlowIdentifier ::= INTEGER (0..63)
+
+-- ============== PDCP Configuration ==============
+
+PDCP-Configuration ::= SEQUENCE {
+    pDCP-SN-Size-UL                 ENUMERATED {twelve-bits, eighteen-bits} OPTIONAL,
+    pDCP-SN-Size-DL                 ENUMERATED {twelve-bits, eighteen-bits} OPTIONAL,
+    integrity-Protection            ENUMERATED {enabled} OPTIONAL,
+    ciphering-Enabled               ENUMERATED {true} OPTIONAL,
+    discard-Timer                   Discard-Timer OPTIONAL,
+    t-Reordering                    T-Reordering OPTIONAL
+}
+
+Discard-Timer ::= ENUMERATED {
+    ms10, ms20, ms30, ms40, ms50, ms60, ms75, ms100, ms150, ms200, ms250, ms300,
+    ms500, ms750, ms1000, ms1250, ms1500, ms2000, ms2500, ms3000, ms3500, ms4000,
+    ms4500, ms5000, ms6000, ms8000, ms10000, ms12000, ms14000, ms16000, ms18000,
+    ms20000, ms25000, ms30000, ms35000, ms40000, ms50000, ms75000, ms100000, ms150000,
+    ms200000, ms250000, ms300000, ms350000, ms400000, ms450000, ms500000, ms550000,
+    ms600000, ms650000, ms700000, ms750000, ms800000, ms850000, ms900000, ms950000,
+    ms1000000, infinity
+}
+
+T-Reordering ::= ENUMERATED {
+    ms0, ms1, ms2, ms4, ms5, ms8, ms10, ms15, ms20, ms30, ms40, ms50, ms60, ms80,
+    ms100, ms120, ms140, ms160, ms180, ms200, ms220, ms240, ms260, ms280, ms300,
+    ms500, ms750, ms1000, ms1250, ms1500, ms2000, ms2500, ms3000, ms3500, ms4000,
+    ms4500, ms5000, ms6000, ms8000, ms10000, ms12000, ms14000, ms16000, ms18000,
+    ms20000, ms25000, ms30000, ms35000, ms40000, ms50000, ms75000, ms100000, ms150000,
+    ms200000, ms250000, ms300000, ms350000, ms400000, ms450000, ms500000, ms550000,
+    ms600000, ms650000, ms700000, ms750000, ms800000, ms850000, ms900000, ms950000,
+    ms1000000
+}
+
+-- ============== RLC Mode ==============
+
+RLC-Mode ::= ENUMERATED {
+    rlc-am,
+    rlc-um-bidirectional,
+    rlc-um-unidirectional-ul,
+    rlc-um-unidirectional-dl
+}
+
+-- ============== UP Transport Information ==============
+
+UL-UP-Transport-Information ::= UP-Transport-Information
+DL-UP-Transport-Information ::= UP-Transport-Information
+
+UP-Transport-Information ::= SEQUENCE {
+    gTPTunnel                       GTPTunnel
+}
+
+GTPTunnel ::= SEQUENCE {
+    transport-Layer-Address         Transport-Layer-Address,
+    gTP-TEID                        GTP-TEID
+}
+
+Transport-Layer-Address ::= BIT STRING (SIZE (1..160))
+GTP-TEID ::= OCTET STRING (SIZE (4))
+
+-- ============== Common Types ==============
+
+GNB-CU-CP-Name ::= PrintableString (SIZE (1..150))
+GNB-CU-UP-Name ::= PrintableString (SIZE (1..150))
+
+GNB-CU-UP-Capacity ::= INTEGER (0..255)
+
+TimeToWait ::= ENUMERATED {
+    v1s, v2s, v5s, v10s, v20s, v60s, v120s, v300s, v600s
+}
+
+Security-Key ::= BIT STRING (SIZE (256))
+
+UEAggregateMaximumBitRate ::= SEQUENCE {
+    uEAggregateMaximumBitRate-UL    BitRate,
+    uEAggregateMaximumBitRate-DL    BitRate
+}
+
+RAN-UE-ID ::= BIT STRING (SIZE (40))
+
+Supported-PLMNs ::= SEQUENCE (SIZE (1..12)) OF PLMN-Identity
+
+GNB-CU-UP-TNLA-Setup-List ::= SEQUENCE (SIZE (1..16)) OF GNB-CU-UP-TNLA-Setup-Item
+
+GNB-CU-UP-TNLA-Setup-Item ::= SEQUENCE {
+    tNLA-Address                    TNLA-Address,
+    tNLA-Port                       TNLA-Port
+}
+
+TNLA-Address ::= BIT STRING (SIZE (32..160))
+TNLA-Port ::= INTEGER (0..65535)
+
+PDUSessionResourceSetup-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResourceSetup-Item
+
+PDUSessionResourceSetup-Item ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    pDUSession-Type                 PDUSession-Type,
+    s-NSSAI                         S-NSSAI OPTIONAL,
+    uE-IP-Address                   UE-IP-Address OPTIONAL,
+    dRB-To-Setup-List               DRB-Setup-List-Request OPTIONAL
+}
+
+PDUSessionResourceSetup-List-Response ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResourceSetup-Item-Response
+
+PDUSessionResourceSetup-Item-Response ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    dRB-Setup-List                  DRB-Setup-List-Response OPTIONAL
+}
+
+PDUSessionResourceFailedToSetup-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResourceFailedToSetup-Item
+
+PDUSessionResourceFailedToSetup-Item ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    cause                           Cause
+}
+
+PDUSessionResourceToRelease-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResourceToRelease-Item
+
+PDUSessionResourceToRelease-Item ::= SEQUENCE {
+    pDUSession-ID                   PDUSession-ID,
+    cause                           Cause OPTIONAL
+}
+
+END

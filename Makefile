@@ -22,6 +22,49 @@ endif
 # Default target
 all: $(TARGET)$(EXE_EXT)
 
+# Mock gNB Server
+MOCK_GNB_SRCS = src/mock_gnb/main.c src/mock_gnb/mock_gnb_server.c src/mock_gnb/mock_gnb_response.c
+MOCK_GNB_DEPS = src/protocol/asn1_per.c src/core/memory.c
+MOCK_GNB_OBJS = $(MOCK_GNB_SRCS:.c=.o) $(MOCK_GNB_DEPS:.c=.o)
+MOCK_GNB_TARGET = mock_gnb_server
+
+mock-gnb: $(MOCK_GNB_TARGET)$(EXE_EXT)
+
+$(MOCK_GNB_TARGET)$(EXE_EXT): $(MOCK_GNB_OBJS)
+	$(CC) $(MOCK_GNB_OBJS) $(LDFLAGS) -o $@
+	@echo "Built mock gNB server: $@"
+
+# Mock Core Network Server
+MOCK_CORE_SRCS = src/mock_core/main.c src/mock_core/mock_core_server.c \
+                  src/mock_core/mock_amf.c src/mock_core/mock_smf.c src/mock_core/mock_upf.c \
+                  src/mock_core/mock_cu_cp.c src/mock_core/mock_du.c src/mock_core/mock_cu_up.c \
+                  src/mock_core/mock_xnap.c
+MOCK_CORE_DEPS = src/core/memory.c
+MOCK_CORE_OBJS = $(MOCK_CORE_SRCS:.c=.o) $(MOCK_CORE_DEPS:.c=.o)
+MOCK_CORE_TARGET = mock_core_server
+
+mock-core: $(MOCK_CORE_TARGET)$(EXE_EXT)
+
+$(MOCK_CORE_TARGET)$(EXE_EXT): $(MOCK_CORE_OBJS)
+	$(CC) $(MOCK_CORE_OBJS) $(LDFLAGS) -o $@
+	@echo "Built mock core server: $@"
+
+# Mock core object files
+src/mock_core/%.o: src/mock_core/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Mock gNB object files
+src/mock_gnb/%.o: src/mock_gnb/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Protocol files for mock gNB
+src/protocol/%.o: src/protocol/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# Core files for mock gNB
+src/core/%.o: src/core/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 # Main executable
 $(TARGET)$(EXE_EXT): $(OBJECTS)
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
@@ -175,6 +218,35 @@ test-benchmark: tests/test_benchmark.c
 test-runner: tests/test_runner.c
 	$(CC) $(CFLAGS) tests/test_runner.c src/core/memory.c -o test_runner$(EXE_EXT) $(LDFLAGS)
 
+# Integration test with mock components
+test-integration: tests/test_integration_flow.c
+	$(CC) $(CFLAGS) tests/test_integration_flow.c \
+	      src/mock_integration/mock_test_env.c \
+	      src/mock_integration/test_flow_controller.c \
+	      src/mock_core/mock_amf.c \
+	      src/mock_core/mock_smf.c \
+	      src/mock_core/mock_upf.c \
+	      src/mock_core/mock_cu_cp.c \
+	      src/mock_core/mock_du.c \
+	      src/mock_core/mock_cu_up.c \
+	      src/mock_core/mock_xnap.c \
+	      src/core/memory.c \
+	      -o test_integration_flow$(EXE_EXT) $(LDFLAGS)
+	@echo "Running integration tests..."
+ifeq ($(PLATFORM),windows)
+	test_integration_flow$(EXE_EXT)
+else
+	./test_integration_flow
+endif
+
+# Test mode run (uses uesim with -t flag)
+test-mode-run: $(TARGET)$(EXE_EXT)
+ifeq ($(PLATFORM),windows)
+	$(TARGET)$(EXE_EXT) -t -u 3
+else
+	./$(TARGET) -t -u 3
+endif
+
 # Help target
 help:
 	@echo "Usage: make [TARGET] [OPTIONS]"
@@ -190,6 +262,14 @@ help:
 	@echo "  install      - Install to system"
 	@echo "  clean        - Remove build artifacts"
 	@echo "  distclean    - Remove all generated files"
+	@echo ""
+	@echo "Mock Server Targets:"
+	@echo "  mock-core    - Build mock core network server"
+	@echo "  mock-gnb     - Build mock gNB server"
+	@echo ""
+	@echo "Test Mode:"
+	@echo "  test-mode-run    - Run UESim in test mode"
+	@echo "  test-integration - Run integration tests"
 	@echo ""
 	@echo "Options:"
 	@echo "  BUILD_TYPE=debug|release|profile"

@@ -88,7 +88,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Coding standards
 - Build and deployment instructions
 
-## [Unreleased] - v1.2.0 Development
+## [Unreleased] - v1.3.0 Development
+
+### Added
+- Mock Core Network Integration:
+  - `--with-mock` CLI flag to auto-start mock components in interactive mode
+  - Mock AMF, SMF, UPF for core network simulation
+  - Mock CU-CP, DU, CU-UP for RAN simulation
+  - Mock XnAP for inter-gNB communication
+  - Automatic mock environment lifecycle management
+- Test Mode for Automated Testing:
+  - `--test` flag for scenario-based automated testing
+  - `--scenario` flag to specify test scenario file
+  - JSON scenario file support with validation
+  - Pass/fail reporting with detailed metrics
+  - Predefined scenarios: registration, pdu_session, handover, deregistration
+- Enhanced CLI with mock control commands:
+  - `mock start` - Start mock core network components
+  - `mock stop` - Stop mock components
+  - `mock status` - Show mock component status
+
+## [1.2.0] - 2026-04-10
 
 ### Added
 - Enhanced ue_context_t structure:
@@ -311,14 +331,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - PHY Layer Abstraction ✅ COMPLETED
 
 ### In Progress for v1.3.0
-- Structured Logging System 🔄 IN PROGRESS
+- Structured Logging System ✅ COMPLETED
   - Core infrastructure (log.h/log.c) ✅ COMPLETED
   - Log levels: TRACE/DEBUG/INFO/WARN/ERROR/FATAL ✅ COMPLETED
   - Categories: CORE/PHY/MAC/RLC/PDCP/SDAP/RRC/NAS/RLF/SOCKET/CLI/QOS ✅ COMPLETED
   - Thread-safe with mutex ✅ COMPLETED
   - Multiple backends: console, file, callback ✅ COMPLETED
   - ANSI color codes for console ✅ COMPLETED
-  - Module conversion: RRC (partial), MAC, NAS, RLC, PDCP, PHY 🔄 IN PROGRESS
+  - Module conversion completed:
+    - RRC module ✅
+    - MAC module ✅
+    - NAS module ✅
+    - RLC module ✅
+    - PDCP module ✅
+    - PHY module ✅
+    - SDAP module ✅
+    - RLF module ✅
+    - Socket manager ✅
 - Performance Metrics and Monitoring
 - Health Monitoring
 - Connection Recovery (socket reconnection, failover)

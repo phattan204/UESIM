@@ -146,6 +146,29 @@ uesim_error_t rrc_encode_setup_complete(asn1_buffer_t* buf, const rrc_setup_comp
     return UESIM_SUCCESS;
 }
 
+uesim_error_t rrc_decode_setup_complete(const uint8_t* data, size_t len, rrc_setup_complete_t* msg) {
+    if (!data || !msg || len < 2) return UESIM_ERROR_INVALID_PARAM;
+    size_t bit_offset = 0;
+    uint32_t tid, plmn;
+    asn1_decode_bits(data, &bit_offset, &tid, 2);
+    asn1_decode_bits(data, &bit_offset, &plmn, 4);
+    msg->rrc_transaction_id = (uint8_t)tid;
+    msg->selected_plmn = (uint8_t)plmn;
+    /* Skip spare bits */
+    uint32_t spare;
+    asn1_decode_bits(data, &bit_offset, &spare, 2);
+    /* Decode NAS PDU if present */
+    asn1_skip_to_byte_boundary(&bit_offset);
+    size_t data_offset = bit_offset / 8;
+    if (data_offset < len) {
+        msg->nas_pdu_len = (len - data_offset < 1024) ? len - data_offset : 1024;
+        memcpy(msg->nas_pdu, data + data_offset, msg->nas_pdu_len);
+    } else {
+        msg->nas_pdu_len = 0;
+    }
+    return UESIM_SUCCESS;
+}
+
 uesim_error_t rrc_decode_setup(const uint8_t* data, size_t len, rrc_setup_t* msg) {
     if (!data || !msg || len < 4) return UESIM_ERROR_INVALID_PARAM;
     size_t bit_offset = 0;
@@ -283,6 +306,15 @@ uesim_error_t rrc_encode_reconfig_complete(asn1_buffer_t* buf, const rrc_reconfi
     memset(buf->data, 0, buf->capacity); buf->size = 0; buf->bit_offset = 0;
     asn1_encode_bits(buf, msg->rrc_transaction_id, 2);
     asn1_encode_bits(buf, 0, 6);
+    return UESIM_SUCCESS;
+}
+
+uesim_error_t rrc_decode_reconfig_complete(const uint8_t* data, size_t len, rrc_reconfig_complete_t* msg) {
+    if (!data || !msg || len < 1) return UESIM_ERROR_INVALID_PARAM;
+    size_t bit_offset = 0;
+    uint32_t tid;
+    asn1_decode_bits(data, &bit_offset, &tid, 2);
+    msg->rrc_transaction_id = (uint8_t)tid;
     return UESIM_SUCCESS;
 }
 
@@ -431,6 +463,69 @@ uesim_error_t rrc_decode_connection_release(const uint8_t* data, size_t len, rrc
     } else {
         msg->redirect_earfcn = 0;
     }
+    return UESIM_SUCCESS;
+}
+
+/* ============== RRC Handover Preparation ============== */
+
+uesim_error_t rrc_encode_handover_prep(asn1_buffer_t* buf, const rrc_handover_prep_t* msg) {
+    if (!buf || !msg) return UESIM_ERROR_INVALID_PARAM;
+    memset(buf->data, 0, buf->capacity); buf->size = 0; buf->bit_offset = 0;
+    
+    /* Measurement ID (6 bits) */
+    asn1_encode_bits(buf, msg->meas_id, 6);
+    asn1_encode_bits(buf, 0, 2);  /* Spare */
+    
+    /* RSRP encoded as offset from -140 dBm (8 bits) */
+    uint32_t rsrp_encoded = (uint32_t)(msg->rsrp + 140);
+    asn1_encode_bits(buf, rsrp_encoded, 8);
+    
+    /* RSRQ encoded as offset from -20 dB (7 bits) */
+    uint32_t rsrq_encoded = (uint32_t)(msg->rsrq + 20);
+    asn1_encode_bits(buf, rsrq_encoded, 7);
+    
+    /* PCI (16 bits) */
+    asn1_encode_bits(buf, msg->pci, 16);
+    
+    /* Cell ID (28 bits) */
+    asn1_encode_bits(buf, msg->cell_id, 28);
+    
+    return UESIM_SUCCESS;
+}
+
+/* ============== RRC Security Mode Command ============== */
+
+uesim_error_t rrc_encode_security_mode_cmd(asn1_buffer_t* buf, const rrc_security_mode_cmd_t* msg) {
+    if (!buf || !msg) return UESIM_ERROR_INVALID_PARAM;
+    memset(buf->data, 0, buf->capacity); buf->size = 0; buf->bit_offset = 0;
+    
+    /* RRC Transaction ID (2 bits) */
+    asn1_encode_bits(buf, msg->rrc_transaction_id, 2);
+    asn1_encode_bits(buf, 0, 6);  /* Spare */
+    
+    /* Security algorithms */
+    asn1_encode_bits(buf, msg->ciphering_alg, 4);
+    asn1_encode_bits(buf, msg->integrity_alg, 4);
+    
+    /* Security capabilities */
+    size_t cap_len = msg->capabilities_len > 4 ? 4 : msg->capabilities_len;
+    if (cap_len > 0) {
+        asn1_encode_octet_string(buf, msg->security_capabilities, cap_len);
+    }
+    
+    return UESIM_SUCCESS;
+}
+
+/* ============== RRC Security Mode Complete ============== */
+
+uesim_error_t rrc_encode_security_mode_complete(asn1_buffer_t* buf, const rrc_security_mode_complete_t* msg) {
+    if (!buf || !msg) return UESIM_ERROR_INVALID_PARAM;
+    memset(buf->data, 0, buf->capacity); buf->size = 0; buf->bit_offset = 0;
+    
+    /* RRC Transaction ID (2 bits) */
+    asn1_encode_bits(buf, msg->rrc_transaction_id, 2);
+    asn1_encode_bits(buf, 0, 6);  /* Spare */
+    
     return UESIM_SUCCESS;
 }
 

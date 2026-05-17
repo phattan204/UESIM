@@ -16,6 +16,8 @@ This application simulates 5G User Equipment behavior for testing and developmen
 - **Thread-Safe Design**: Thread pool, mutexes, condition variables
 - **Advanced Memory Management**: Custom memory pool with thread safety
 - **IPC Mechanisms**: Ring buffers, shared memory, message queues
+- **Mock Core Network**: Built-in mock AMF, SMF, UPF, CU-CP, DU, CU-UP, XnAP for testing
+- **Test Mode**: Automated scenario-based testing with JSON test files
 
 ## Architecture
 
@@ -110,6 +112,44 @@ make clean
 
 # Debug mode
 ./uesim --debug
+
+# Interactive mode with mock core network
+./uesim -I --with-mock
+
+# Run automated test with scenario file
+./uesim --test --scenario scenarios/registration_scenario.json
+```
+
+## Mock Core Network
+
+The built-in mock core network allows testing without external network components:
+
+| Component | Description | Default Port |
+|-----------|-------------|--------------|
+| AMF | Access and Mobility Management Function | 38412 |
+| SMF | Session Management Function | 38413 |
+| UPF | User Plane Function | 2152 |
+| CU-CP | Central Unit - Control Plane | 38472 |
+| DU | Distributed Unit | 38473 |
+| CU-UP | Central Unit - User Plane | 38474 |
+| XnAP | Inter-gNB Communication | 38423 |
+
+### Mock CLI Commands
+
+- `mock start` - Start mock core network components
+- `mock stop` - Stop mock components
+- `mock status` - Show mock component status
+
+## Test Mode
+
+Run automated tests with JSON scenario files:
+
+```bash
+# Available test scenarios
+./uesim --test --scenario scenarios/registration_scenario.json
+./uesim --test --scenario scenarios/pdu_session_scenario.json
+./uesim --test --scenario scenarios/handover_scenario.json
+./uesim --test --scenario scenarios/deregistration_scenario.json
 ```
 
 ## CLI Commands
@@ -212,7 +252,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Authors
 
-- Telecom Software Developer
+- Telecom Software Developer - Nguyen Van Tan Phat
 
 ## Acknowledgments
 

@@ -1,0 +1,413 @@
+-- 3GPP TS 38.413
+-- NG Application Protocol (NGAP)
+-- ASN.1 Schema for Message Validation
+-- Version 17.4.0
+
+NGAP-38413 DEFINITIONS AUTOMATIC TAGS ::=
+
+BEGIN
+
+-- ============== Basic Types ==============
+
+AMF-UE-NGAP-ID ::= INTEGER (0..1099511627775)  -- 40 bits
+RAN-UE-NGAP-ID ::= INTEGER (0..4294967295)     -- 32 bits
+
+PLMN-Identity ::= BIT STRING (SIZE (24))
+GNB-ID ::= CHOICE {
+    gNB-ID-Choice    BIT STRING (SIZE (22..32))
+}
+
+NR-CGI ::= SEQUENCE {
+    pLMNIdentity     PLMN-Identity,
+    nRCellIdentity   NCI
+}
+
+NCI ::= BIT STRING (SIZE (36))
+
+TAI ::= SEQUENCE {
+    pLMNIdentity    PLMN-Identity,
+    tAC             TAC
+}
+
+TAC ::= BIT STRING (SIZE (24))
+
+S-NSSAI ::= SEQUENCE {
+    sST             OCTET STRING (SIZE (1)),
+    sD              OCTET STRING (SIZE (3)) OPTIONAL
+}
+
+-- ============== NGAP PDU ==============
+
+NGAP-PDU ::= CHOICE {
+    initiatingMessage      InitiatingMessage,
+    successfulOutcome      SuccessfulOutcome,
+    unsuccessfulOutcome    UnsuccessfulOutcome
+}
+
+InitiatingMessage ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+SuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+UnsuccessfulOutcome ::= SEQUENCE {
+    procedureCode      ProcedureCode,
+    criticality        Criticality,
+    value              OpenType
+}
+
+OpenType ::= OCTET STRING
+
+Criticality ::= ENUMERATED {reject, ignore, notify}
+
+-- ============== Procedure Codes (TS 38.413 Section 9) ==============
+
+ProcedureCode ::= INTEGER {
+    id-NG-Setup                        (21),
+    id-NG-Reset                        (22),
+    id-ErrorIndication                 (23),
+    id-InitialUEMessage                (24),
+    id-InitialContextSetup             (25),
+    id-UEContextReleaseRequest         (26),
+    id-UEContextRelease                (27),
+    id-UEContextModification           (28),
+    id-UEContextModificationRequest    (29),
+    id-RANConfigurationUpdate          (30),
+    id-RerouteNASRequest               (31),
+    id-UECapabilityInfoIndication      (32),
+    id-UERadioCapabilityCheck          (33),
+    id-HandoverPreparation             (34),
+    id-HandoverResourceAllocation      (35),
+    id-HandoverCancel                  (36),
+    id-UplinkRANStatusTransfer         (37),
+    id-HandoverNotification            (38),
+    id-PathSwitchRequest               (39),
+    id-LocationReporting               (40),
+    id-LocationReportingControl        (41),
+    id-LocationReportingFailureIndication (42),
+    id-InitialUEMessage-Split          (43),
+    id-DirectTransfer                  (44),
+    id-Paging                          (45),
+    id-NAS-Non-Delivery-Indication     (46),
+    id-AMFConfigurationUpdate          (47),
+    id-UEContextRequest                (48),
+    id-UEContextModificationConfirm    (49),
+    id-RAN-UE-ID-Query                 (50),
+    id-UEInformationTransfer           (51),
+    id-HandoverSuccess                 (52),
+    id-PDUSessionResourceSetup         (53),
+    id-PDUSessionResourceModify        (54),
+    id-PDUSessionResourceRelease       (55),
+    id-PDUSessionResourceNotify        (56),
+    id-PDUSessionResourceModifyIndication (57)
+} (21..57)
+
+-- ============== Cause Values ==============
+
+Cause ::= CHOICE {
+    radioNetwork      CauseRadioNetwork,
+    transport         CauseTransport,
+    nas               CauseNAS,
+    protocol          CauseProtocol,
+    misc              CauseMisc
+}
+
+CauseRadioNetwork ::= ENUMERATED {
+    unknown-PLMN-ID                           (0),
+    unknown-AMF                                (1),
+    unknown-RAN-UE-NGAP-ID                     (2),
+    unspecified                                (3),
+    multiple-UE-ID                             (4),
+    unknown-UE-ID                              (5),
+    implicit-context-activated                 (6),
+    ho-failure-in-target-5GC                   (7),
+    ho-target-not-allowed                      (8),
+    target-ran-unavailable                     (9),
+    no-radio-resources-available              (10),
+    invalid-QoS-combination                   (11),
+    failure-in-radio-interface-procedure      (12),
+    interaction-with-other-procedure          (13),
+    unknown-PDU-session-ID                    (14),
+    unknown-QoS-flow-ID                       (15),
+    multiple-PDU-session-ID                   (16),
+    multiple-QoS-flow-ID                      (17),
+    resources-not-available                   (18),
+    ran-unavailable                            (19),
+    report-characteristics-change             (20),
+    recovery                                   (21),
+    release-due-to-CN                         (22),
+    ran-initiated-qos-flow-release            (23),
+    ran-initiated-pdu-session-release         (24)
+}
+
+CauseTransport ::= ENUMERATED {
+    transport-resource-unavailable            (0),
+    unspecified                                (1)
+}
+
+CauseNAS ::= ENUMERATED {
+    normal-release                             (0),
+    authentication-failure                     (1),
+    deregister                                 (2),
+    unspecified                                (3)
+}
+
+CauseProtocol ::= ENUMERATED {
+    transfer-syntax-error                      (0),
+    abstract-syntax-error-reject               (1),
+    abstract-syntax-error-ignore-and-notify    (2),
+    message-not-compatible-with-receiver-state (3),
+    semantic-error                             (4),
+    abstract-syntax-error-falsely-constructed-message (5),
+    unspecified                                (6)
+}
+
+CauseMisc ::= ENUMERATED {
+    control-processing-overload                (0),
+    not-enough-user-plane-processing-resources (1),
+    hardware-failure                           (2),
+    om-intervention                            (3),
+    unspecified                                (4)
+}
+
+-- ============== NG Setup ==============
+
+NG-Setup-Request ::= SEQUENCE {
+    globalRANNodeID        GlobalRANNodeID,
+    ranNodeName            RANNodeName OPTIONAL,
+    supportedTAList        SupportedTAList,
+    defaultPagingDRX       PagingDRX,
+    ueRetentionPolicyInfo  UERetentionPolicyInfo OPTIONAL
+}
+
+NG-Setup-Response ::= SEQUENCE {
+    amfName                AMFName,
+    supportedTAList        SupportedTAList,
+    relativeAMFCapacity    RelativeAMFCapacity,
+    pLMNSupportList        PLMNSupportList
+}
+
+NG-Setup-Failure ::= SEQUENCE {
+    cause                   Cause,
+    timeToWait              TimeToWait OPTIONAL,
+    criticalityDiagnostics  CriticalityDiagnostics OPTIONAL
+}
+
+-- ============== UE Context Management ==============
+
+InitialUEMessage ::= SEQUENCE {
+    ran-UE-NGAP-ID             RAN-UE-NGAP-ID,
+    nas-PDU                    NAS-PDU,
+    userLocationInfo           UserLocationInfo,
+    rRCEstablishmentCause      RRCEstablishmentCause,
+    fiveG-S-TMSI               FiveG-S-TMSI OPTIONAL,
+    aMFSetID                   AMFSetID OPTIONAL,
+    aMFServiceSetID            AMFServiceSetID OPTIONAL,
+    uEContextRequest           UEContextRequest OPTIONAL,
+    allowedNSSAI               AllowedNSSAI OPTIONAL,
+    nas-PDU-Container          NAS-PDU-Container OPTIONAL
+}
+
+InitialContextSetup-Request ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    uESecurityCapabilities      UESecurityCapabilities,
+    securityKey                 SecurityKey,
+    nAS-PDU                     NAS-PDU OPTIONAL,
+    uEAggregateMaximumBitRate   UEAggregateMaximumBitRate OPTIONAL,
+    pDUSessionResourceSetupListHOReq   PDUSessionResourceSetupListHOReq OPTIONAL,
+    allowedNSSAI                AllowedNSSAI OPTIONAL,
+    nas-PDU-Container           NAS-PDU-Container OPTIONAL,
+    uERadioCapability           UERadioCapability OPTIONAL,
+    uERadioCapabilityForPaging  UERadioCapabilityForPaging OPTIONAL
+}
+
+InitialContextSetup-Response ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    pDUSessionResourceSetupList  PDUSessionResourceSetupList OPTIONAL,
+    criticalityDiagnostics      CriticalityDiagnostics OPTIONAL
+}
+
+UEContextRelease-Command ::= SEQUENCE {
+    ran-UE-NGAP-ID     RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID     AMF-UE-NGAP-ID,
+    cause              Cause
+}
+
+UEContextRelease-Complete ::= SEQUENCE {
+    ran-UE-NGAP-ID           RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID           AMF-UE-NGAP-ID,
+    userLocationInfo         UserLocationInfo OPTIONAL,
+    infoOnRecommendedCells   InfoOnRecommendedCells OPTIONAL,
+    criticalityDiagnostics   CriticalityDiagnostics OPTIONAL
+}
+
+-- ============== PDU Session Management ==============
+
+PDUSessionResourceSetup-Request ::= SEQUENCE {
+    ran-UE-NGAP-ID                    RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID                    AMF-UE-NGAP-ID,
+    uEAggregateMaximumBitRate         UEAggregateMaximumBitRate OPTIONAL,
+    pDUSessionResourceSetupList       PDUSessionResourceSetupList,
+    nas-PDU                           NAS-PDU OPTIONAL
+}
+
+PDUSessionResourceSetup-List ::= SEQUENCE (SIZE (1..256)) OF PDUSessionResourceSetup-Item
+
+PDUSessionResourceSetup-Item ::= SEQUENCE {
+    pDUSessionID                      PDUSessionID,
+    pDUSessionNAS-PDU                 NAS-PDU OPTIONAL,
+    s-NSSAI                           S-NSSAI OPTIONAL,
+    pDUSessionResourceSetupRequestTransfer  OCTET STRING
+}
+
+PDUSessionResourceSetup-Response ::= SEQUENCE {
+    ran-UE-NGAP-ID                    RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID                    AMF-UE-NGAP-ID,
+    pDUSessionResourceSetupList       PDUSessionResourceSetupList OPTIONAL,
+    pDUSessionResourceFailedToSetupList  PDUSessionResourceFailedToSetupList OPTIONAL,
+    criticalityDiagnostics            CriticalityDiagnostics OPTIONAL
+}
+
+PDUSessionResourceRelease-Command ::= SEQUENCE {
+    ran-UE-NGAP-ID                    RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID                    AMF-UE-NGAP-ID,
+    pDUSessionResourceToReleaseList   PDUSessionResourceToReleaseList,
+    cause                             Cause OPTIONAL
+}
+
+-- ============== Handover ==============
+
+Handover-Preparation-Request ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    handoverType                HandoverType,
+    cause                       Cause,
+    userLocationInfo            UserLocationInfo,
+    uEContextInformation        UEContextInformation,
+    uEAggregateMaximumBitRate   UEAggregateMaximumBitRate OPTIONAL,
+    pDUSessionResourceSetupListHOReq  PDUSessionResourceSetupListHOReq OPTIONAL
+}
+
+HandoverType ::= ENUMERATED {
+    intra5GS,    -- intra-NR
+    inter5GS,    -- inter-RAT
+    eps-to-5GS,  -- LTE to NR
+    fiveGS-to-eps -- NR to LTE
+}
+
+Handover-Request ::= SEQUENCE {
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    handoverType                HandoverType,
+    cause                       Cause,
+    uEAggregateMaximumBitRate   UEAggregateMaximumBitRate OPTIONAL,
+    uESecurityCapabilities      UESecurityCapabilities,
+    securityKey                 SecurityKey,
+    pDUSessionResourceSetupListHOReq  PDUSessionResourceSetupListHOReq OPTIONAL
+}
+
+Handover-Request-Acknowledge ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    pDUSessionResourceAdmittedList  PDUSessionResourceAdmittedList OPTIONAL,
+    pDUSessionResourceFailedToSetupListHO  PDUSessionResourceFailedToSetupListHO OPTIONAL,
+    target-ToSource-TransparentContainer  Target-ToSource-TransparentContainer,
+    criticalityDiagnostics      CriticalityDiagnostics OPTIONAL
+}
+
+Handover-Command ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    handoverType                HandoverType,
+    target-ToSource-TransparentContainer  Target-ToSource-TransparentContainer,
+    pDUSessionResourceToReleaseList  PDUSessionResourceToReleaseList OPTIONAL
+}
+
+Handover-Notify ::= SEQUENCE {
+    ran-UE-NGAP-ID              RAN-UE-NGAP-ID,
+    amf-UE-NGAP-ID              AMF-UE-NGAP-ID,
+    userLocationInfo            UserLocationInfo
+}
+
+-- ============== Paging ==============
+
+Paging ::= SEQUENCE {
+    uE-PagingIdentity           UE-PagingIdentity,
+    pagingDRX                   PagingDRX OPTIONAL,
+    tAIListForRestart           TAIList OPTIONAL,
+    pagingPriority              PagingPriority OPTIONAL,
+    uERadioCapabilityForPaging  UERadioCapabilityForPaging OPTIONAL,
+    pagingAttemptInformation    PagingAttemptInformation OPTIONAL
+}
+
+UE-PagingIdentity ::= CHOICE {
+    fiveG-S-TMSI    FiveG-S-TMSI,
+    gUTI            GUTI
+}
+
+FiveG-S-TMSI ::= SEQUENCE {
+    aMFSetID       AMFSetID,
+    aMFPointer     AMFPointer,
+    fiveG-TMSI     FiveG-TMSI
+}
+
+-- ============== Common Structures ==============
+
+GlobalRANNodeID ::= CHOICE {
+    global-GNB-ID    Global-GNB-ID,
+    global-NgENB-ID  Global-NgENB-ID,
+    global-N3IWF-ID  Global-N3IWF-ID
+}
+
+Global-GNB-ID ::= SEQUENCE {
+    pLMNIdentity    PLMN-Identity,
+    gNB-ID          GNB-ID
+}
+
+UserLocationInfo ::= CHOICE {
+    userLocationInformationEUTRA   UserLocationInformationEUTRA,
+    userLocationInformationNR      UserLocationInformationNR,
+    userLocationInformationN3IWF   UserLocationInformationN3IWF
+}
+
+UserLocationInformationNR ::= SEQUENCE {
+    nR-CGI                NR-CGI,
+    tAI                   TAI,
+    timeStamp             TimeStamp OPTIONAL
+}
+
+UESecurityCapabilities ::= SEQUENCE {
+    nR-encryptionAlgorithms       NR-EncryptionAlgorithms,
+    nR-integrityProtectionAlgorithms  NR-IntegrityProtectionAlgorithms,
+    eUTRA-encryptionAlgorithms    EUTRA-EncryptionAlgorithms OPTIONAL,
+    eUTRA-integrityProtectionAlgorithms  EUTRA-IntegrityProtectionAlgorithms OPTIONAL
+}
+
+NR-EncryptionAlgorithms ::= BIT STRING (SIZE (16))
+NR-IntegrityProtectionAlgorithms ::= BIT STRING (SIZE (16))
+
+SecurityKey ::= BIT STRING (SIZE (256))
+
+AMFName ::= PrintableString (SIZE (1..150))
+RANNodeName ::= PrintableString (SIZE (1..150))
+
+PagingDRX ::= ENUMERATED {
+    v32, v64, v128, v256
+}
+
+TimeToWait ::= ENUMERATED {
+    v1s, v2s, v5s, v10s, v20s, v60s, v120s, v300s, v600s
+}
+
+NAS-PDU ::= OCTET STRING
+PDUSessionID ::= INTEGER (0..255)
+QosFlowIdentifier ::= INTEGER (0..63)
+
+END

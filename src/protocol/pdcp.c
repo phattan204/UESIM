@@ -8,6 +8,7 @@
 #include "aes.h"
 #include "zuc.h"
 #include "../core/memory.h"
+#include "../utils/log.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -32,7 +33,7 @@ uesim_error_t pdcp_init(ue_context_t* ue_ctx) {
     uesim_error_t result = pdcp_create_entity(ue_ctx, PDCP_BEARER_SRB1, 
                                               PDCP_DIRECTION_BIDIRECTIONAL, &srb1_entity);
     if (result != UESIM_SUCCESS) {
-        printf("PDCP: Failed to create SRB1 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        LOG_ERROR(LOG_CAT_NAME_PDCP, "Failed to create SRB1 entity for UE %u, error=%d", ue_ctx->ue_id, result);
         return result;
     }
     
@@ -40,7 +41,7 @@ uesim_error_t pdcp_init(ue_context_t* ue_ctx) {
     result = ue_set_pdcp_entity(ue_ctx, PDCP_BEARER_SRB1, srb1_entity);
     if (result != UESIM_SUCCESS) {
         pdcp_destroy_entity(ue_ctx, srb1_entity);
-        printf("PDCP: Failed to store SRB1 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        LOG_ERROR(LOG_CAT_NAME_PDCP, "Failed to store SRB1 entity for UE %u, error=%d", ue_ctx->ue_id, result);
         return result;
     }
     
@@ -52,7 +53,7 @@ uesim_error_t pdcp_init(ue_context_t* ue_ctx) {
     result = pdcp_create_entity(ue_ctx, PDCP_BEARER_SRB2, 
                                PDCP_DIRECTION_BIDIRECTIONAL, &srb2_entity);
     if (result != UESIM_SUCCESS) {
-        printf("PDCP: Failed to create SRB2 entity for UE %u, error=%d\n", ue_ctx->ue_id, result);
+        LOG_WARN(LOG_CAT_NAME_PDCP, "Failed to create SRB2 entity for UE %u, error=%d", ue_ctx->ue_id, result);
         /* Continue without SRB2 - SRB1 is sufficient */
     } else {
         result = ue_set_pdcp_entity(ue_ctx, PDCP_BEARER_SRB2, srb2_entity);
@@ -63,7 +64,7 @@ uesim_error_t pdcp_init(ue_context_t* ue_ctx) {
         }
     }
     
-    printf("PDCP: Initialized for UE %u (SRB1 entity_id=%u)\n", ue_ctx->ue_id, srb1_entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Initialized for UE %u (SRB1 entity_id=%u)", ue_ctx->ue_id, srb1_entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -79,11 +80,11 @@ void pdcp_cleanup(ue_context_t* ue_ctx) {
             uint32_t entity_id = pdcp_entity->entity_id;
             pdcp_destroy_entity(ue_ctx, pdcp_entity);
             ue_remove_pdcp_entity(ue_ctx, i);
-            printf("PDCP: Destroyed entity %u for bearer %d\n", entity_id, i);
+            LOG_DEBUG(LOG_CAT_NAME_PDCP, "Destroyed entity %u for bearer %d", entity_id, i);
         }
     }
     
-    printf("PDCP: Cleanup completed for UE %u\n", ue_ctx->ue_id);
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Cleanup completed for UE %u", ue_ctx->ue_id);
 }
 
 uesim_error_t pdcp_create_entity(ue_context_t* ue_ctx, pdcp_bearer_t bearer,
@@ -135,7 +136,7 @@ uesim_error_t pdcp_create_entity(ue_context_t* ue_ctx, pdcp_bearer_t bearer,
     }
     
     *entity = pdcp_entity;
-    printf("PDCP entity created: ID=%u, Bearer=%d, Direction=%d\n",
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Entity created: ID=%u, Bearer=%d, Direction=%d",
            pdcp_entity->entity_id, bearer, direction);
     
     return UESIM_SUCCESS;
@@ -173,7 +174,7 @@ uesim_error_t pdcp_activate_entity(pdcp_entity_t* entity) {
     entity->active = true;
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("PDCP entity %u activated\n", entity->entity_id);
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "Entity %u activated", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -189,7 +190,7 @@ uesim_error_t pdcp_deactivate_entity(pdcp_entity_t* entity) {
     entity->active = false;
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("PDCP entity %u deactivated\n", entity->entity_id);
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "Entity %u deactivated", entity->entity_id);
     return UESIM_SUCCESS;
 }
 
@@ -232,10 +233,10 @@ uesim_error_t pdcp_process_tx_data(pdcp_entity_t* entity, const void* sdu_data,
         
         // Check for HFN overflow
         if (pdcp_check_hfn_overflow(entity)) {
-            printf("PDCP: WARNING - TX HFN overflow detected, key refresh required!\n");
+            LOG_WARN(LOG_CAT_NAME_PDCP, "TX HFN overflow detected, key refresh required!");
         }
         
-        printf("PDCP: TX SN wraparound, new TX_HFN=%u\n", entity->tx_hfn);
+        LOG_DEBUG(LOG_CAT_NAME_PDCP, "TX SN wraparound, new TX_HFN=%u", entity->tx_hfn);
     }
     
     entity->last_tx_sn = current_sn;
@@ -285,7 +286,7 @@ uesim_error_t pdcp_process_rx_data(pdcp_entity_t* entity, const pdcp_pdu_t* pdu,
         }
         
         if (!valid) {
-            printf("PDCP integrity verification failed for entity %u\n", entity->entity_id);
+            LOG_ERROR(LOG_CAT_NAME_PDCP, "Integrity verification failed for entity %u", entity->entity_id);
             return UESIM_ERROR_PROTOCOL;
         }
     }
@@ -322,7 +323,7 @@ uesim_error_t pdcp_process_rx_data(pdcp_entity_t* entity, const pdcp_pdu_t* pdu,
     // Check sequence number
     uint32_t expected_sn = atomic_load(&entity->next_expected_sn);
     if (pdu->sn != expected_sn) {
-        printf("PDCP SN mismatch: expected=%u, received=%u\n", expected_sn, pdu->sn);
+        LOG_WARN(LOG_CAT_NAME_PDCP, "SN mismatch: expected=%u, received=%u", expected_sn, pdu->sn);
         // For now, we'll continue but in real implementation this might trigger retransmission
     }
     
@@ -696,7 +697,7 @@ uesim_error_t pdcp_init_sn_params(pdcp_entity_t* entity) {
             break;
     }
     
-    printf("PDCP: Initialized SN params: SN_length=%d, SN_mask=0x%X, SN_max=%u, HFN_max=0x%X\n",
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "Initialized SN params: SN_length=%d, SN_mask=0x%X, SN_max=%u, HFN_max=0x%X",
            entity->sn_length, entity->sn_mask, entity->sn_max, entity->hfn_max);
     
     return UESIM_SUCCESS;
@@ -736,11 +737,11 @@ uint32_t pdcp_get_rx_count(pdcp_entity_t* entity, uint32_t received_sn) {
         
         // Check for HFN overflow
         if (pdcp_check_hfn_overflow(entity)) {
-            printf("PDCP: WARNING - HFN overflow detected, key refresh required!\n");
+            LOG_WARN(LOG_CAT_NAME_PDCP, "HFN overflow detected, key refresh required!");
         }
         
         count = received_sn + (entity->sn_max * entity->rx_hfn);
-        printf("PDCP: RX SN wraparound detected, new HFN=%u, COUNT=0x%08X\n", 
+        LOG_DEBUG(LOG_CAT_NAME_PDCP, "RX SN wraparound detected, new HFN=%u, COUNT=0x%08X", 
                entity->rx_hfn, count);
     } else {
         // Normal case - use current HFN
@@ -806,7 +807,7 @@ uesim_error_t pdcp_trigger_key_refresh(pdcp_entity_t* entity) {
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("PDCP: Key refresh triggered for entity %u (HFN overflow detected)\n", 
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Key refresh triggered for entity %u (HFN overflow detected)", 
            entity->entity_id);
     
     /* 
@@ -826,7 +827,7 @@ uesim_error_t pdcp_trigger_key_refresh(pdcp_entity_t* entity) {
     /* Mark entity as needing key refresh */
     /* In production, this would trigger an RRC procedure */
     
-    printf("PDCP: Entity %u requires key refresh - TX_HFN=%u/%u, RX_HFN=%u/%u\n",
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "Entity %u requires key refresh - TX_HFN=%u/%u, RX_HFN=%u/%u",
            entity->entity_id, entity->tx_hfn, entity->hfn_max,
            entity->rx_hfn, entity->hfn_max);
     
@@ -853,11 +854,11 @@ uesim_error_t pdcp_perform_key_refresh(pdcp_entity_t* entity,
     }
     
     if (entity->security_ctx == NULL) {
-        printf("PDCP: Cannot perform key refresh - no security context\n");
+        LOG_ERROR(LOG_CAT_NAME_PDCP, "Cannot perform key refresh - no security context");
         return UESIM_ERROR_INVALID_PARAM;
     }
     
-    printf("PDCP: Performing key refresh for entity %u\n", entity->entity_id);
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Performing key refresh for entity %u", entity->entity_id);
     
     if (pthread_mutex_lock(&entity->entity_mutex) != 0) {
         return UESIM_ERROR_THREAD;
@@ -898,9 +899,8 @@ uesim_error_t pdcp_perform_key_refresh(pdcp_entity_t* entity,
     
     pthread_mutex_unlock(&entity->entity_mutex);
     
-    printf("PDCP: Key refresh completed for entity %u\n", entity->entity_id);
-    printf("     HFN reset to 0, SN reset to 0\n");
-    printf("     Key refresh count: %u\n", 
+    LOG_INFO(LOG_CAT_NAME_PDCP, "Key refresh completed for entity %u", entity->entity_id);
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "HFN reset to 0, SN reset to 0, Key refresh count: %u", 
            atomic_load(&entity->security_ctx->key_refresh_count));
     
     return UESIM_SUCCESS;
@@ -1006,11 +1006,8 @@ uesim_error_t pdcp_derive_refreshed_keys(pdcp_entity_t* entity,
         new_integrity_key[i] ^= (uint8_t)(fc + int_alg + i);
     }
     
-    printf("PDCP: Derived refreshed keys for entity %u\n", entity->entity_id);
-    printf("     Bearer type: %s\n", 
-           entity->bearer_type <= PDCP_BEARER_SRB3 ? "SRB" : "DRB");
-    printf("     Ciphering: NEA%d, type_distinguisher=0x%02x\n", enc_alg, enc_type);
-    printf("     Integrity: NIA%d, type_distinguisher=0x%02x\n", int_alg, int_type);
+    LOG_DEBUG(LOG_CAT_NAME_PDCP, "Derived refreshed keys for entity %u, Bearer: %s, Ciphering: NEA%d, Integrity: NIA%d", 
+           entity->entity_id, entity->bearer_type <= PDCP_BEARER_SRB3 ? "SRB" : "DRB", enc_alg, int_alg);
     
     return UESIM_SUCCESS;
 }
