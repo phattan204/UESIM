@@ -13,6 +13,7 @@
 
 #ifdef _WIN32
 #include <io.h>
+#include <ws2tcpip.h>
 #define close closesocket
 #define SHUT_RDWR SD_BOTH
 
@@ -49,6 +50,24 @@ static void* gtpu_listener_thread(void* arg);
 static mock_gnb_error_t handle_client_connection(int client_socket);
 static void process_ngap_message(mock_gnb_ue_context_t* ue_ctx, const void* data, size_t len);
 static void send_ngap_response(mock_gnb_ue_context_t* ue_ctx, const void* data, size_t len);
+
+/* Detected RRC message type */
+typedef enum {
+    RRC_MSG_TYPE_UNKNOWN = 0,
+    RRC_MSG_TYPE_SETUP_REQUEST,
+    RRC_MSG_TYPE_SETUP_COMPLETE,
+    RRC_MSG_TYPE_REESTABLISHMENT_REQUEST,
+    RRC_MSG_TYPE_RECONFIGURATION_COMPLETE,
+    RRC_MSG_TYPE_MEASUREMENT_REPORT,
+    RRC_MSG_TYPE_HANDOVER_PREPARATION,
+    RRC_MSG_TYPE_UE_CAPABILITY_INFO,
+    RRC_MSG_TYPE_SECURITY_MODE_COMPLETE
+} rrc_detected_type_t;
+
+/* Static helper functions - forward declarations to avoid -Wmissing-prototypes */
+static rrc_detected_type_t detect_rrc_message_type(const uint8_t* data, size_t len);
+static bool is_asn1_per_rrc_setup_request(const uint8_t* data, size_t len);
+static mock_gnb_error_t generate_rrc_setup_asn1(uint8_t transaction_id, void** response, size_t* len);
 
 /* ============== Utility Functions ============== */
 
@@ -750,18 +769,6 @@ typedef struct {
     uint8_t data[];
 } mock_message_header_t;
 
-/* Detected RRC message type */
-typedef enum {
-    RRC_MSG_TYPE_UNKNOWN = 0,
-    RRC_MSG_TYPE_SETUP_REQUEST,
-    RRC_MSG_TYPE_SETUP_COMPLETE,
-    RRC_MSG_TYPE_REESTABLISHMENT_REQUEST,
-    RRC_MSG_TYPE_RECONFIGURATION_COMPLETE,
-    RRC_MSG_TYPE_MEASUREMENT_REPORT,
-    RRC_MSG_TYPE_HANDOVER_PREPARATION,
-    RRC_MSG_TYPE_UE_CAPABILITY_INFO,
-    RRC_MSG_TYPE_SECURITY_MODE_COMPLETE
-} rrc_detected_type_t;
 
 /* Detect RRC message type from ASN.1 PER encoded data */
 static rrc_detected_type_t detect_rrc_message_type(const uint8_t* data, size_t len) {
@@ -1122,7 +1129,7 @@ static void process_ngap_message(mock_gnb_ue_context_t* ue_ctx, const void* data
             if (g_server.config.auto_respond) {
                 void* response = NULL;
                 size_t resp_len = 0;
-                if (mock_gnb_generate_rrc_setup(trans_id, &response, &resp_len) == MOCK_GNB_SUCCESS) {
+                if (mock_gnb_generate_rrc_setup(trans_id, ue_ctx->ran_ue_ngap_id, &response, &resp_len) == MOCK_GNB_SUCCESS) {
                     if (g_server.config.response_delay_ms > 0) {
 #ifdef _WIN32
                         Sleep(g_server.config.response_delay_ms);
@@ -1305,7 +1312,7 @@ mock_gnb_error_t mock_gnb_generate_ng_setup_response(void** response, size_t* le
     return MOCK_GNB_SUCCESS;
 }
 
-mock_gnb_error_t mock_gnb_generate_rrc_setup(uint32_t transaction_id, void** response, size_t* len) {
+mock_gnb_error_t mock_gnb_generate_rrc_setup(uint32_t transaction_id, uint32_t ran_ue_ngap_id, void** response, size_t* len) {
     size_t msg_len = 12 + 8;  /* Header + RRC data */
     void* data = malloc(msg_len);
     if (data == NULL) {
@@ -1320,7 +1327,9 @@ mock_gnb_error_t mock_gnb_generate_rrc_setup(uint32_t transaction_id, void** res
     /* RRC Setup data: cell_id, rnti */
     uint32_t* rrc_data = (uint32_t*)msg->data;
     rrc_data[0] = htonl(g_server.config.cell_config.cell_id);
-    rrc_data[1] = htonl(0);  /* RNTI placeholder */
+    /* Generate unique C-RNTI for this UE (range 0x0001-0xFFEF) */
+    uint16_t c_rnti = (uint16_t)((ran_ue_ngap_id & 0xFFEF) + 1);
+    rrc_data[1] = htonl(c_rnti);
     
     *response = data;
     *len = msg_len;

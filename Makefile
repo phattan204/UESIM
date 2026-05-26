@@ -19,11 +19,20 @@ else
     MKDIR = mkdir -p
 endif
 
+# SCTP library linking (set by configure script)
+# SCTP_LDFLAGS is defined in rules.mk based on HAVE_SCTP detection
+LDFLAGS += $(SCTP_LDFLAGS)
+
+# Windows-specific libraries
+ifeq ($(PLATFORM),windows)
+    LDFLAGS += -lws2_32
+endif
+
 # Default target
 all: $(TARGET)$(EXE_EXT)
 
-# Mock gNB Server
-MOCK_GNB_SRCS = src/mock_gnb/main.c src/mock_gnb/mock_gnb_server.c src/mock_gnb/mock_gnb_response.c
+# Mock gNB Server (main.c excluded from main build)
+MOCK_GNB_SRCS = src/mock_gnb/mock_gnb_server.c src/mock_gnb/mock_gnb_response.c
 MOCK_GNB_DEPS = src/protocol/asn1_per.c src/core/memory.c
 MOCK_GNB_OBJS = $(MOCK_GNB_SRCS:.c=.o) $(MOCK_GNB_DEPS:.c=.o)
 MOCK_GNB_TARGET = mock_gnb_server
@@ -34,8 +43,8 @@ $(MOCK_GNB_TARGET)$(EXE_EXT): $(MOCK_GNB_OBJS)
 	$(CC) $(MOCK_GNB_OBJS) $(LDFLAGS) -o $@
 	@echo "Built mock gNB server: $@"
 
-# Mock Core Network Server
-MOCK_CORE_SRCS = src/mock_core/main.c src/mock_core/mock_core_server.c \
+# Mock Core Network Server (main.c excluded from main build)
+MOCK_CORE_SRCS = src/mock_core/mock_core_server.c \
                   src/mock_core/mock_amf.c src/mock_core/mock_smf.c src/mock_core/mock_upf.c \
                   src/mock_core/mock_cu_cp.c src/mock_core/mock_du.c src/mock_core/mock_cu_up.c \
                   src/mock_core/mock_xnap.c

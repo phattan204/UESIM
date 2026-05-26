@@ -3,10 +3,9 @@
  * Mock Test Environment - Implementation
  */
 
+#include "../uesim.h"
 #include "mock_test_env.h"
-#include "../mock_core/mock_core.h"
-#include "../mock_gnb/mock_gnb_server.h"
-#include "../core/ue_context.h"
+#include "../core/memory.h"
 #include "../utils/log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +98,7 @@ void mock_test_env_get_default_config(mock_test_env_config_t* config) {
 /* ============== Environment Management ============== */
 
 mock_test_env_t* mock_test_env_create(const mock_test_env_config_t* config) {
-    mock_test_env_t* env = (mock_test_env_t*)calloc(1, sizeof(mock_test_env_t));
+    mock_test_env_t* env = (mock_test_env_t*)uesim_calloc(1, sizeof(mock_test_env_t));
     if (!env) {
         return NULL;
     }
@@ -126,7 +125,7 @@ void mock_test_env_destroy(mock_test_env_t* env) {
     }
     
     /* Free environment */
-    free(env);
+    uesim_free(env);
 }
 
 mock_test_error_t mock_test_env_start(mock_test_env_t* env) {
@@ -857,6 +856,8 @@ const char* mock_test_error_to_string(mock_test_error_t error) {
         case MOCK_TEST_ERROR_NOT_RUNNING: return "Not running";
         case MOCK_TEST_ERROR_COMPONENT: return "Component error";
         case MOCK_TEST_ERROR_PROTOCOL: return "Protocol error";
+        case MOCK_TEST_ERROR_CAPACITY: return "Capacity exceeded";
+        case MOCK_TEST_ERROR_NOT_FOUND: return "Not found";
         default: return "Unknown error";
     }
 }
@@ -922,4 +923,125 @@ void mock_test_env_print_stats(const mock_test_env_t* env) {
     }
     
     printf("==================================\n\n");
+}
+
+/* ============== Component Health Check ============== */
+
+static void check_component_health_internal(const void* component,
+                                            const mock_test_component_stats_t* stats,
+                                            mock_test_component_health_t* health) {
+    if (!health) return;
+    
+    memset(health, 0, sizeof(mock_test_component_health_t));
+    
+    if (component == NULL) {
+        health->status = MOCK_TEST_HEALTH_UNHEALTHY;
+        strncpy(health->last_error_msg, "Component not initialized", 
+                sizeof(health->last_error_msg) - 1);
+        return;
+    }
+    
+    if (stats->errors > 10) {
+        health->status = MOCK_TEST_HEALTH_UNHEALTHY;
+        health->error_count = stats->errors;
+    } else if (stats->errors > 0) {
+        health->status = MOCK_TEST_HEALTH_DEGRADED;
+        health->error_count = stats->errors;
+    } else {
+        health->status = MOCK_TEST_HEALTH_HEALTHY;
+    }
+    
+    health->last_activity_ms = 0;  /* Would be updated by component */
+}
+
+mock_test_error_t mock_test_env_health_check(const mock_test_env_t* env, 
+                                              mock_test_health_check_t* health) {
+    if (!env || !health) return MOCK_TEST_ERROR_INVALID_PARAM;
+    
+    memset(health, 0, sizeof(mock_test_health_check_t));
+    
+    /* Check each component */
+    check_component_health_internal(env->amf, &env->stats.amf, &health->amf);
+    check_component_health_internal(env->smf, &env->stats.smf, &health->smf);
+    check_component_health_internal(env->upf, &env->stats.upf, &health->upf);
+    check_component_health_internal(env->cu_cp, &env->stats.cu_cp, &health->cu_cp);
+    check_component_health_internal(env->du, &env->stats.du, &health->du);
+    check_component_health_internal(env->cu_up, &env->stats.cu_up, &health->cu_up);
+    check_component_health_internal(env->xnap, &env->stats.xnap, &health->xnap);
+    check_component_health_internal(env->gnb_server, &env->stats.gnb_server, &health->gnb_server);
+    
+    /* Count totals */
+    health->total_errors = health->amf.error_count + health->smf.error_count +
+                           health->upf.error_count + health->cu_cp.error_count +
+                           health->du.error_count + health->cu_up.error_count +
+                           health->xnap.error_count + health->gnb_server.error_count;
+    
+    if (health->amf.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->smf.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->upf.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->cu_cp.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->du.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->cu_up.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->xnap.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    if (health->gnb_server.status >= MOCK_TEST_HEALTH_UNHEALTHY) health->unhealthy_count++;
+    
+    return MOCK_TEST_SUCCESS;
+}
+
+mock_test_health_status_t mock_test_env_check_component_health(const mock_test_env_t* env,
+                                                                 const char* component) {
+    if (!env || !component) return MOCK_TEST_HEALTH_UNKNOWN;
+    
+    mock_test_health_check_t health;
+    if (mock_test_env_health_check(env, &health) != MOCK_TEST_SUCCESS) {
+        return MOCK_TEST_HEALTH_UNKNOWN;
+    }
+    
+    if (strcmp(component, "amf") == 0) return health.amf.status;
+    if (strcmp(component, "smf") == 0) return health.smf.status;
+    if (strcmp(component, "upf") == 0) return health.upf.status;
+    if (strcmp(component, "cu_cp") == 0) return health.cu_cp.status;
+    if (strcmp(component, "du") == 0) return health.du.status;
+    if (strcmp(component, "cu_up") == 0) return health.cu_up.status;
+    if (strcmp(component, "xnap") == 0) return health.xnap.status;
+    if (strcmp(component, "gnb_server") == 0) return health.gnb_server.status;
+    
+    return MOCK_TEST_HEALTH_UNKNOWN;
+}
+
+static const char* health_status_to_string(mock_test_health_status_t status) {
+    switch (status) {
+        case MOCK_TEST_HEALTH_HEALTHY: return "HEALTHY";
+        case MOCK_TEST_HEALTH_DEGRADED: return "DEGRADED";
+        case MOCK_TEST_HEALTH_UNHEALTHY: return "UNHEALTHY";
+        default: return "UNKNOWN";
+    }
+}
+
+void mock_test_env_print_health_check(const mock_test_health_check_t* health) {
+    if (!health) {
+        printf("[TestEnv] NULL health check\n");
+        return;
+    }
+    
+    printf("\n=== Component Health Check ===\n");
+    printf("AMF:       %s (errors: %u)\n", 
+           health_status_to_string(health->amf.status), health->amf.error_count);
+    printf("SMF:       %s (errors: %u)\n", 
+           health_status_to_string(health->smf.status), health->smf.error_count);
+    printf("UPF:       %s (errors: %u)\n", 
+           health_status_to_string(health->upf.status), health->upf.error_count);
+    printf("CU-CP:     %s (errors: %u)\n", 
+           health_status_to_string(health->cu_cp.status), health->cu_cp.error_count);
+    printf("DU:        %s (errors: %u)\n", 
+           health_status_to_string(health->du.status), health->du.error_count);
+    printf("CU-UP:     %s (errors: %u)\n", 
+           health_status_to_string(health->cu_up.status), health->cu_up.error_count);
+    printf("XnAP:      %s (errors: %u)\n", 
+           health_status_to_string(health->xnap.status), health->xnap.error_count);
+    printf("gNB Server: %s (errors: %u)\n", 
+           health_status_to_string(health->gnb_server.status), health->gnb_server.error_count);
+    printf("\nTotal Errors: %u, Unhealthy Components: %u\n", 
+           health->total_errors, health->unhealthy_count);
+    printf("==============================\n\n");
 }

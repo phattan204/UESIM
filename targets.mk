@@ -3,9 +3,11 @@ TARGET = uesim
 TARGET_DEBUG = $(TARGET)-debug
 TARGET_PROFILE = $(TARGET)-profile
 
-# Source directories
+# Source directories (exclude main.c files from mock_core and mock_gnb - they have their own targets)
 SRCDIRS = src src/core src/protocol src/transport src/cli src/config src/nas src/benchmark src/utils src/mock_core src/mock_gnb src/mock_integration
-SOURCES = $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
+ALL_SOURCES = $(foreach dir,$(SRCDIRS),$(wildcard $(dir)/*.c))
+# Exclude main.c files from mock_core and mock_gnb directories
+SOURCES = $(filter-out src/mock_core/main.c src/mock_gnb/main.c,$(ALL_SOURCES))
 OBJECTS = $(SOURCES:.c=.o)
 DEPS = $(SOURCES:.c=.d)
 

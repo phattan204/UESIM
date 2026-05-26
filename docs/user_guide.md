@@ -2,10 +2,44 @@
 
 ## Quick Start
 
-```bash
-# Build the application
-make clean && make
+### Build on Linux (RHEL 8.5+)
 
+```bash
+# Install dependencies
+sudo yum install -y gcc make libsctp-devel
+
+# Run configure script (auto-detects system capabilities)
+./configure
+
+# Build the application
+make
+
+# Run with default configuration
+./uesim
+```
+
+### Build on Other Platforms
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y build-essential libsctp-dev pkg-config
+./configure
+make
+
+# macOS
+xcode-select --install
+brew install libsctp pkg-config
+./configure
+make
+
+# Windows (MSYS2)
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+make
+```
+
+### Run UESim
+
+```bash
 # Run with default configuration
 ./uesim
 
@@ -17,6 +51,9 @@ make clean && make
 
 # Run with multiple UE instances
 ./uesim -i 100
+
+# Run in test mode with mock components
+./uesim -t -u 5
 ```
 
 ## Command Line Options

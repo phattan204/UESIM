@@ -4,6 +4,7 @@
  */
 
 #include "test_flow_controller.h"
+#include "../core/memory.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +12,10 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#define get_time_ms() GetTickCount64()
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
+#define get_time_ms() GetTickCount()
 #else
 #include <sys/time.h>
 static uint64_t get_time_ms(void) {
@@ -26,7 +30,7 @@ static uint64_t get_time_ms(void) {
 test_flow_controller_t* test_flow_controller_create(mock_test_env_t* env) {
     if (!env) return NULL;
     
-    test_flow_controller_t* controller = (test_flow_controller_t*)calloc(1, sizeof(test_flow_controller_t));
+    test_flow_controller_t* controller = (test_flow_controller_t*)uesim_calloc(1, sizeof(test_flow_controller_t));
     if (!controller) return NULL;
     
     controller->env = env;
@@ -40,11 +44,15 @@ void test_flow_controller_destroy(test_flow_controller_t* controller) {
     if (!controller) return;
     
     test_flow_controller_clear_scenarios(controller);
-    free(controller);
+    test_flow_controller_clear_cleanup_callbacks(controller);
+    uesim_free(controller);
 }
 
 void test_flow_controller_reset(test_flow_controller_t* controller) {
     if (!controller) return;
+    
+    /* Clear cleanup callbacks */
+    test_flow_controller_clear_cleanup_callbacks(controller);
     
     for (uint32_t i = 0; i < controller->num_scenarios; i++) {
         test_scenario_t* scenario = &controller->scenarios[i];
@@ -102,6 +110,11 @@ const test_scenario_t* test_flow_controller_get_scenario(const test_flow_control
 
 /* ============== Scenario Execution ============== */
 
+/* Forward declaration for cleanup callback execution */
+static void execute_cleanup_callbacks(test_flow_controller_t* controller,
+                                       uint32_t ue_index,
+                                       const test_step_t* step);
+
 test_flow_error_t test_flow_controller_run_scenario(test_flow_controller_t* controller,
                                                      uint32_t scenario_index) {
     if (!controller) return TEST_FLOW_ERROR_INVALID_PARAM;
@@ -155,6 +168,9 @@ test_flow_error_t test_flow_controller_run_scenario(test_flow_controller_t* cont
             if (controller->verbose) {
                 printf("[FlowController]   FAILED: %s\n", step->result_message);
             }
+            
+            /* Execute cleanup callbacks on failure */
+            execute_cleanup_callbacks(controller, step->ue_index, step);
             
             if (controller->stop_on_failure) {
                 /* Mark remaining steps as skipped */
@@ -252,14 +268,46 @@ bool test_flow_controller_is_running(const test_flow_controller_t* controller) {
 
 /* ============== Step Execution ============== */
 
+/* Default step timeout in milliseconds */
+#define TEST_FLOW_DEFAULT_STEP_TIMEOUT_MS  30000
+
+/* Forward declaration for step timeout handling */
+static test_flow_error_t execute_step_with_timeout(test_flow_controller_t* controller,
+                                                    test_step_t* step,
+                                                    uint32_t timeout_ms);
+
+/* Forward declaration for custom step execution */
+static test_flow_error_t execute_custom_step(test_flow_controller_t* controller,
+                                              test_step_t* step);
+
 test_flow_error_t test_flow_controller_execute_step(test_flow_controller_t* controller,
                                                      test_step_t* step) {
     if (!controller || !step) return TEST_FLOW_ERROR_INVALID_PARAM;
     
+    /* Use step-specific timeout or default */
+    uint32_t timeout_ms = (step->timeout_ms > 0) ? step->timeout_ms : TEST_FLOW_DEFAULT_STEP_TIMEOUT_MS;
+    
+    return execute_step_with_timeout(controller, step, timeout_ms);
+}
+
+/* Execute step with timeout enforcement */
+static test_flow_error_t execute_step_with_timeout(test_flow_controller_t* controller,
+                                                    test_step_t* step,
+                                                    uint32_t timeout_ms) {
     uint64_t step_start = get_time_ms();
+    uint64_t deadline = step_start + timeout_ms;
     step->result = TEST_STEP_RESULT_RUNNING;
     
     mock_test_error_t err = MOCK_TEST_SUCCESS;
+    
+    /* Check timeout before execution */
+    if (get_time_ms() > deadline) {
+        step->result = TEST_STEP_RESULT_TIMEOUT;
+        snprintf(step->result_message, sizeof(step->result_message) - 1,
+                 "Step timeout before execution (%u ms)", timeout_ms);
+        step->duration_ms = 0;
+        return TEST_FLOW_ERROR_TIMEOUT;
+    }
     
     switch (step->type) {
         case TEST_STEP_TYPE_WAIT:
@@ -353,10 +401,8 @@ test_flow_error_t test_flow_controller_execute_step(test_flow_controller_t* cont
             break;
             
         case TEST_STEP_TYPE_CUSTOM:
-            /* Custom step - would need callback implementation */
-            step->result = TEST_STEP_RESULT_SKIPPED;
-            strncpy(step->result_message, "Custom step not implemented", sizeof(step->result_message) - 1);
-            break;
+            /* Custom step - use registered handler */
+            return execute_custom_step(controller, step);
             
         default:
             step->result = TEST_STEP_RESULT_FAILED;
@@ -704,6 +750,157 @@ const char* test_flow_error_to_string(test_flow_error_t error) {
         case TEST_FLOW_ERROR_TIMEOUT: return "Timeout";
         case TEST_FLOW_ERROR_STEP_FAILED: return "Step failed";
         case TEST_FLOW_ERROR_ENV_NOT_READY: return "Environment not ready";
+        case TEST_FLOW_ERROR_CAPACITY: return "Capacity exceeded";
         default: return "Unknown error";
     }
+}
+
+/* ============== Cleanup Callback Management ============== */
+
+test_flow_error_t test_flow_controller_register_cleanup(test_flow_controller_t* controller,
+                                                         test_flow_cleanup_cb_t callback,
+                                                         void* user_data) {
+    if (!controller || !callback) return TEST_FLOW_ERROR_INVALID_PARAM;
+    
+    if (controller->num_cleanup_callbacks >= TEST_FLOW_MAX_CLEANUP_CB) {
+        return TEST_FLOW_ERROR_CAPACITY;
+    }
+    
+    controller->cleanup_callbacks[controller->num_cleanup_callbacks] = callback;
+    controller->cleanup_user_data[controller->num_cleanup_callbacks] = user_data;
+    controller->num_cleanup_callbacks++;
+    
+    return TEST_FLOW_SUCCESS;
+}
+
+void test_flow_controller_clear_cleanup_callbacks(test_flow_controller_t* controller) {
+    if (!controller) return;
+    
+    memset(controller->cleanup_callbacks, 0, sizeof(controller->cleanup_callbacks));
+    memset(controller->cleanup_user_data, 0, sizeof(controller->cleanup_user_data));
+    controller->num_cleanup_callbacks = 0;
+}
+
+/* Execute all registered cleanup callbacks on failure */
+static void execute_cleanup_callbacks(test_flow_controller_t* controller,
+                                       uint32_t ue_index,
+                                       const test_step_t* step) {
+    if (!controller || !step) return;
+    
+    for (uint32_t i = 0; i < controller->num_cleanup_callbacks; i++) {
+        if (controller->cleanup_callbacks[i]) {
+            controller->cleanup_callbacks[i](controller->env, ue_index, step,
+                                              controller->cleanup_user_data[i]);
+        }
+    }
+}
+
+/* ============== Custom Step Handler Management ============== */
+
+test_flow_error_t test_flow_register_step_handler(test_flow_controller_t* controller,
+                                                   const char* step_name,
+                                                   custom_step_handler_t handler,
+                                                   void* context) {
+    if (!controller || !step_name || !handler) return TEST_FLOW_ERROR_INVALID_PARAM;
+    
+    if (controller->num_custom_handlers >= TEST_FLOW_MAX_CUSTOM_HANDLERS) {
+        return TEST_FLOW_ERROR_CAPACITY;
+    }
+    
+    custom_step_registration_t* reg = &controller->custom_handlers[controller->num_custom_handlers];
+    strncpy(reg->step_name, step_name, sizeof(reg->step_name) - 1);
+    reg->handler = handler;
+    reg->context = context;
+    reg->is_default = false;
+    controller->num_custom_handlers++;
+    
+    return TEST_FLOW_SUCCESS;
+}
+
+test_flow_error_t test_flow_set_default_custom_handler(test_flow_controller_t* controller,
+                                                        custom_step_handler_t handler,
+                                                        void* context) {
+    if (!controller) return TEST_FLOW_ERROR_INVALID_PARAM;
+    
+    controller->default_custom_handler = handler;
+    controller->default_custom_context = context;
+    
+    return TEST_FLOW_SUCCESS;
+}
+
+void test_flow_clear_custom_handlers(test_flow_controller_t* controller) {
+    if (!controller) return;
+    
+    memset(controller->custom_handlers, 0, sizeof(controller->custom_handlers));
+    controller->num_custom_handlers = 0;
+    controller->default_custom_handler = NULL;
+    controller->default_custom_context = NULL;
+}
+
+/* Find a custom handler by step name */
+static custom_step_handler_t find_custom_handler(test_flow_controller_t* controller,
+                                                  const char* step_name,
+                                                  void** out_context) {
+    if (!controller || !step_name || !out_context) return NULL;
+    
+    /* First, try to find a named handler */
+    for (uint32_t i = 0; i < controller->num_custom_handlers; i++) {
+        if (strcmp(controller->custom_handlers[i].step_name, step_name) == 0) {
+            *out_context = controller->custom_handlers[i].context;
+            return controller->custom_handlers[i].handler;
+        }
+    }
+    
+    /* Fall back to default handler */
+    if (controller->default_custom_handler) {
+        *out_context = controller->default_custom_context;
+        return controller->default_custom_handler;
+    }
+    
+    return NULL;
+}
+
+/* Example custom step handler - can be used as a template */
+static test_flow_error_t example_custom_handler(test_step_t* step, void* context) {
+    (void)context;
+    
+    if (!step) return TEST_FLOW_ERROR_INVALID_PARAM;
+    
+    /* Custom logic based on step parameters */
+    if (strcmp(step->params.custom.function_name, "log_message") == 0) {
+        printf("[CustomStep] %s\n", step->params.custom.params[0]);
+        step->result = TEST_STEP_RESULT_PASSED;
+        strncpy(step->result_message, "Log message printed", sizeof(step->result_message) - 1);
+        return TEST_FLOW_SUCCESS;
+    }
+    
+    /* Unknown custom function */
+    step->result = TEST_STEP_RESULT_SKIPPED;
+    strncpy(step->result_message, "Unknown custom function", sizeof(step->result_message) - 1);
+    return TEST_FLOW_ERROR_NOT_FOUND;
+}
+
+/* Execute step with custom handler support */
+static test_flow_error_t execute_custom_step(test_flow_controller_t* controller,
+                                              test_step_t* step) {
+    if (!controller || !step) return TEST_FLOW_ERROR_INVALID_PARAM;
+    
+    uint64_t step_start = get_time_ms();
+    step->result = TEST_STEP_RESULT_RUNNING;
+    
+    /* Look for registered handler */
+    void* handler_context = NULL;
+    custom_step_handler_t handler = find_custom_handler(controller, step->name, &handler_context);
+    
+    if (handler) {
+        test_flow_error_t err = handler(step, handler_context);
+        step->duration_ms = get_time_ms() - step_start;
+        return err;
+    }
+    
+    /* No handler registered - skip the step */
+    step->result = TEST_STEP_RESULT_SKIPPED;
+    strncpy(step->result_message, "No custom handler registered", sizeof(step->result_message) - 1);
+    step->duration_ms = 0;
+    return TEST_FLOW_SUCCESS;
 }

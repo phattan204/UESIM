@@ -51,42 +51,6 @@
 #define PFCP_IE_F_SEID                          57
 #define PFCP_IE_NODE_ID                        60
 
-/* ============== SMF Server Context ============== */
-
-struct smf_server_s {
-    smf_config_t config;
-    
-    /* PFCP Socket */
-    int pfcp_socket;
-    struct sockaddr_in pfcp_addr;
-    
-    /* UPF Connection */
-    struct sockaddr_in upf_addr;
-    bool upf_associated;
-    uint64_t upf_f_seid;
-    
-    /* Sessions */
-    smf_pdu_session_t sessions[MOCK_CORE_MAX_UES * MOCK_CORE_MAX_SESSIONS];
-    uint32_t num_sessions;
-    uint64_t sessions_created;
-    uint64_t sessions_released;
-    
-    /* State */
-    pthread_mutex_t session_mutex;
-    pthread_t pfcp_thread;
-#ifdef _WIN32
-    volatile LONG running;
-#else
-    atomic_bool running;
-#endif
-    
-    /* Statistics */
-    uint64_t pfcp_messages_tx;
-    uint64_t pfcp_messages_rx;
-    uint64_t pfcp_sessions_created;
-    uint64_t pfcp_sessions_deleted;
-};
-
 /* ============== PFCP Message Structures ============== */
 
 typedef struct __attribute__((packed)) {

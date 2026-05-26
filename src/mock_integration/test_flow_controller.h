@@ -18,6 +18,7 @@
 /* ============== Constants ============== */
 
 #define TEST_FLOW_MAX_SCENARIOS     64
+#define TEST_FLOW_MAX_CLEANUP_CB    8
 #define TEST_FLOW_MAX_STEPS         128
 #define TEST_FLOW_MAX_NAME_LEN      64
 #define TEST_FLOW_MAX_DESC_LEN      256
@@ -34,7 +35,8 @@ typedef enum {
     TEST_FLOW_ERROR_NOT_FOUND = -5,
     TEST_FLOW_ERROR_TIMEOUT = -6,
     TEST_FLOW_ERROR_STEP_FAILED = -7,
-    TEST_FLOW_ERROR_ENV_NOT_READY = -8
+    TEST_FLOW_ERROR_ENV_NOT_READY = -8,
+    TEST_FLOW_ERROR_CAPACITY = -9
 } test_flow_error_t;
 
 /* ============== Step Types ============== */
@@ -131,6 +133,39 @@ typedef struct {
     bool is_complete;
 } test_scenario_t;
 
+/* ============== Cleanup Callback Type ============== */
+
+/**
+ * Cleanup callback function type for test failure cleanup
+ * @param env Test environment
+ * @param ue_index UE index that failed (MOCK_TEST_MAX_UES if not UE-specific)
+ * @param step Step that triggered cleanup
+ * @param user_data User-provided context
+ */
+typedef void (*test_flow_cleanup_cb_t)(mock_test_env_t* env, uint32_t ue_index,
+                                        const test_step_t* step, void* user_data);
+
+/* ============== Custom Step Handler Type ============== */
+
+/**
+ * Custom step handler function type for user-defined test steps
+ * @param step Step being executed (contains parameters and result fields)
+ * @param context User-provided context data
+ * @return TEST_FLOW_SUCCESS or error code
+ */
+typedef test_flow_error_t (*custom_step_handler_t)(test_step_t* step, void* context);
+
+/* ============== Custom Step Registration ============== */
+
+typedef struct {
+    char step_name[TEST_FLOW_MAX_NAME_LEN];
+    custom_step_handler_t handler;
+    void* context;
+    bool is_default;  /* true if this is the default handler for all CUSTOM steps */
+} custom_step_registration_t;
+
+#define TEST_FLOW_MAX_CUSTOM_HANDLERS   16
+
 /* ============== Test Flow Controller ============== */
 
 typedef struct {
@@ -156,6 +191,17 @@ typedef struct {
     bool verbose;
     bool collect_pcap;
     char report_file[256];
+    
+    /* Cleanup callbacks */
+    test_flow_cleanup_cb_t cleanup_callbacks[TEST_FLOW_MAX_CLEANUP_CB];
+    void* cleanup_user_data[TEST_FLOW_MAX_CLEANUP_CB];
+    uint32_t num_cleanup_callbacks;
+    
+    /* Custom step handlers */
+    custom_step_registration_t custom_handlers[TEST_FLOW_MAX_CUSTOM_HANDLERS];
+    uint32_t num_custom_handlers;
+    custom_step_handler_t default_custom_handler;
+    void* default_custom_context;
 } test_flow_controller_t;
 
 /* ============== Controller Management ============== */
@@ -339,6 +385,57 @@ test_flow_error_t test_flow_controller_create_handover_scenario(test_scenario_t*
  */
 test_flow_error_t test_flow_controller_create_complete_scenario(test_scenario_t* scenario,
                                                                   uint32_t num_ues);
+
+/* ============== Cleanup Callback Management ============== */
+
+/**
+ * Register cleanup callback for test failure
+ * @param controller Controller
+ * @param callback Cleanup callback function
+ * @param user_data User data passed to callback
+ * @return TEST_FLOW_SUCCESS or error code
+ */
+test_flow_error_t test_flow_controller_register_cleanup(test_flow_controller_t* controller,
+                                                         test_flow_cleanup_cb_t callback,
+                                                         void* user_data);
+
+/**
+ * Clear all cleanup callbacks
+ * @param controller Controller
+ */
+void test_flow_controller_clear_cleanup_callbacks(test_flow_controller_t* controller);
+
+/* ============== Custom Step Handler Management ============== */
+
+/**
+ * Register a custom step handler by name
+ * @param controller Controller
+ * @param step_name Name of the step to handle (matches step->name)
+ * @param handler Custom handler function
+ * @param context User context passed to handler
+ * @return TEST_FLOW_SUCCESS or error code
+ */
+test_flow_error_t test_flow_register_step_handler(test_flow_controller_t* controller,
+                                                   const char* step_name,
+                                                   custom_step_handler_t handler,
+                                                   void* context);
+
+/**
+ * Set default handler for all CUSTOM steps
+ * @param controller Controller
+ * @param handler Default handler function (NULL to clear)
+ * @param context User context passed to handler
+ * @return TEST_FLOW_SUCCESS or error code
+ */
+test_flow_error_t test_flow_set_default_custom_handler(test_flow_controller_t* controller,
+                                                        custom_step_handler_t handler,
+                                                        void* context);
+
+/**
+ * Clear all custom step handlers
+ * @param controller Controller
+ */
+void test_flow_clear_custom_handlers(test_flow_controller_t* controller);
 
 /* ============== Utility Functions ============== */
 

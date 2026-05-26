@@ -104,7 +104,8 @@ typedef enum {
     MOCK_INT_ERROR_AMF_SETUP = -5,
     MOCK_INT_ERROR_NOT_CONNECTED = -6,
     MOCK_INT_ERROR_PROTOCOL = -7,
-    MOCK_INT_ERROR_TIMEOUT = -8
+    MOCK_INT_ERROR_TIMEOUT = -8,
+    MOCK_INT_ERROR_CAPACITY = -9
 } mock_integration_error_t;
 
 /* ============== API Functions ============== */

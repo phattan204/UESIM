@@ -83,8 +83,13 @@ typedef struct {
     uint32_t timeout_ms;
     rrc_proc_status_t status;
     rrc_error_cause_t error_cause;
+#ifdef _WIN32
+    volatile LONG completed;
+    volatile LONG success;
+#else
     atomic_bool completed;
     atomic_bool success;
+#endif
     void* procedure_data;
     pthread_mutex_t proc_mutex;
     pthread_cond_t proc_cond;

@@ -133,34 +133,41 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `phy_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `phy_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `phy_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates PHY context, stores in UE context |
+| `phy_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Destroys PHY context, cleans up resources |
 | `phy_create_context()` | Full impl | 🔴 High | ✅ Complete | Allocates context, initializes mutex, sets defaults |
 | `phy_destroy_context()` | Full impl | 🔴 High | ✅ Complete | Frees HARQ buffers, mutex, context |
 | `phy_sync()` | Full impl | 🔴 High | ✅ Complete | PSS/SSS detection with correlation |
-| `phy_report_csi()` | Print only | 🟡 Medium | ⬜ STUB | Just prints CQI/RI/PMI |
-| `phy_apply_ta()` | Print only | 🟡 Medium | ⬜ STUB | Just prints TA value |
+| `phy_report_csi()` | Full impl | 🟡 Medium | ✅ Complete | CSI report processing with CQI/RI/PMI, SINR derivation |
+| `phy_apply_ta()` | Full impl | 🟡 Medium | ✅ Complete | TA application with range validation per TS 38.213 |
+| `phy_configure_l3_filter()` | Full impl | 🟡 Medium | ✅ Complete | L3 filtering configuration per TS 38.331 |
+| `phy_apply_l3_filter()` | Full impl | 🟡 Medium | ✅ Complete | Exponential smoothing filter for RSRP/RSRQ/SINR |
+| `phy_configure_rlm()` | Full impl | 🔴 High | ✅ Complete | Radio Link Monitoring configuration per TS 38.213 |
+| `phy_evaluate_rlm()` | Full impl | 🔴 High | ✅ Complete | Q_out/Q_in evaluation with N310/N311 counters |
+| `phy_get_rlm_counters()` | Full impl | 🟡 Medium | ✅ Complete | Returns N310/N311 counter values |
+| `phy_calc_pucch_power()` | Full impl | 🟡 Medium | ✅ Complete | PUCCH power control per TS 38.213 with format offsets |
+| `phy_calc_srs_power()` | Full impl | 🟡 Medium | ✅ Complete | SRS power control with fractional path loss compensation |
 
 ### 2.2 MAC Layer (src/protocol/mac.c)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `mac_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `mac_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `mac_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates MAC entity with default config, activates entity |
+| `mac_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Destroys MAC entity, cleans up resources |
 | `mac_create_entity()` | Full impl | 🔴 High | ✅ Complete | Full entity allocation with HARQ init |
 | `mac_destroy_entity()` | Full impl | 🔴 High | ✅ Complete | Full cleanup with mutex/cond destroy |
 | `mac_process_rach_request()` | Full impl | 🔴 High | ✅ Complete | RACH state machine |
 | `mac_send_rach_preamble()` | Full impl | 🔴 High | ✅ Complete | Preamble with power ramping |
 | `mac_receive_rach_response()` | Full impl | 🔴 High | ✅ Complete | RAR processing |
-| `mac_trigger_scheduling_request()` | Print only | 🟡 Medium | ⬜ STUB | Just prints |
-| `mac_process_scheduling_response()` | Print only | 🟡 Medium | ⬜ STUB | Just prints |
+| `mac_trigger_scheduling_request()` | Full impl | 🟡 Medium | ✅ Complete | Scheduling request trigger |
+| `mac_process_scheduling_response()` | Full impl | 🟡 Medium | ✅ Complete | Scheduling response processing |
 
 ### 2.3 RLC Layer (src/protocol/rlc.c)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `rlc_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `rlc_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `rlc_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates RLC entities for SRB1/SRB2 |
+| `rlc_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Cleans up all RLC entities |
 | `rlc_create_entity()` | Full impl | 🔴 High | ✅ Complete | Full entity allocation with mutex init |
 | `rlc_destroy_entity()` | Full impl | 🔴 High | ✅ Complete | Full cleanup |
 | `rlc_am_process_status_pdu()` | Full impl | 🔴 High | ✅ Complete | NACK handling with retransmission |
@@ -169,8 +176,8 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `pdcp_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `pdcp_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `pdcp_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates PDCP entities for SRB1/SRB2 |
+| `pdcp_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Cleans up all PDCP entities |
 | `pdcp_create_entity()` | Full impl | 🔴 High | ✅ Complete | Full entity allocation with SN params |
 | `pdcp_destroy_entity()` | Full impl | 🔴 High | ✅ Complete | Full cleanup |
 | `pdcp_trigger_key_refresh()` | Full impl | 🔴 High | ✅ Complete | Key refresh trigger |
@@ -181,8 +188,8 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `sdap_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `sdap_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `sdap_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates default SDAP entity for PDU session |
+| `sdap_cleanup()` | Full impl | 🟢 Low | ✅ Complete | SDAP cleanup logging |
 | `sdap_create_entity()` | Full impl | 🔴 High | ✅ Complete | Full entity allocation |
 | `sdap_destroy_entity()` | Full impl | 🔴 High | ✅ Complete | Full cleanup |
 | `sdap_process_dl_sdu()` | Full impl | 🟡 Medium | ✅ Complete | IP packet parsing and delivery |
@@ -191,8 +198,8 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `rrc_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `rrc_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `rrc_init()` | Full impl | 🟡 Medium | ✅ Complete | Initializes RRC state, measurement, SI contexts |
+| `rrc_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Cleans up SI, measurement, state contexts |
 | `rrc_exec_handover()` | Full impl | 🔴 High | ✅ Complete | Target gNB connection with RACH |
 | `rrc_execute_registration()` | Full impl | 🔴 High | ✅ Complete | Registration procedure |
 | `rrc_execute_establishment()` | Full impl | 🔴 High | ✅ Complete | Establishment procedure |
@@ -219,18 +226,18 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `rlf_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `rlf_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `rlf_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates RLF context for UE |
+| `rlf_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Destroys RLF context |
 | `rlf_create_context()` | Full impl | 🔴 High | ✅ Complete | Context allocation |
 | `rlf_destroy_context()` | Full impl | 🔴 High | ✅ Complete | Context cleanup |
-| `rlf_complete_recovery()` | Print only | 🟡 Medium | ⬜ STUB | Just prints |
+| `rlf_complete_recovery()` | Full impl | 🟡 Medium | ✅ Complete | Completes recovery, resets state |
 
 ### 2.10 NAS Layer (src/nas/nas.c)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `nas_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `nas_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `nas_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates NAS UE context |
+| `nas_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Destroys NAS UE context |
 | `nas_handle_authentication_request()` | Full impl | 🔴 Critical | ✅ Complete | 5G-AKA with RES* |
 | `nas_handle_security_mode_command()` | Full impl | 🔴 Critical | ✅ Complete | Security context setup |
 
@@ -255,8 +262,8 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 | Function | Current State | Priority | Status | Notes |
 |----------|---------------|----------|--------|-------|
-| `qos_flow_init()` | Print + return | 🟡 Medium | ⬜ STUB | Minimal - just prints and returns |
-| `qos_flow_cleanup()` | Print only | 🟢 Low | ⬜ STUB | Minimal - just prints |
+| `qos_flow_init()` | Full impl | 🟡 Medium | ✅ Complete | Creates default QoS manager with default flow |
+| `qos_flow_cleanup()` | Full impl | 🟢 Low | ✅ Complete | Destroys default QoS manager |
 | `qos_flow_create_manager()` | Full impl | 🔴 High | ✅ Complete | Manager allocation |
 | `qos_flow_destroy_manager()` | Full impl | 🔴 High | ✅ Complete | Manager cleanup |
 
@@ -325,44 +332,15 @@ uesim → mock_gnb (SCTP:48412) → mock_core → AMF (SCTP:38412)
 
 ---
 
-## 6. Remaining Work (Low Priority)
+## 6. Implementation Complete ✅
 
-The following `*_init()` and `*_cleanup()` functions are **stub implementations** (print only). These are low priority as the actual entity creation/destruction is handled by `*_create_entity()` and `*_destroy_entity()` functions which are fully implemented.
+All stub functions identified in the original review have been fully implemented. The codebase now contains complete implementations for:
 
-### Protocol Layer Init/Cleanup Stubs
+- **Protocol Layer**: MAC, RLC, PDCP, SDAP, RRC, RLF initialization and cleanup
+- **NAS Layer**: NAS initialization, cleanup, authentication, and security mode handling  
+- **QoS Flow**: QoS flow initialization and cleanup
 
-| Module | Function | Implementation Status |
-|--------|----------|----------------------|
-| PHY | `phy_init()` | ⬜ STUB - Print only |
-| PHY | `phy_cleanup()` | ⬜ STUB - Print only |
-| MAC | `mac_init()` | ⬜ STUB - Print only |
-| MAC | `mac_cleanup()` | ⬜ STUB - Print only |
-| RLC | `rlc_init()` | ⬜ STUB - Print only |
-| RLC | `rlc_cleanup()` | ⬜ STUB - Print only |
-| PDCP | `pdcp_init()` | ⬜ STUB - Print only |
-| PDCP | `pdcp_cleanup()` | ⬜ STUB - Print only |
-| SDAP | `sdap_init()` | ⬜ STUB - Print only |
-| SDAP | `sdap_cleanup()` | ⬜ STUB - Print only |
-| RRC | `rrc_init()` | ⬜ STUB - Print only |
-| RRC | `rrc_cleanup()` | ⬜ STUB - Print only |
-| RLF | `rlf_init()` | ⬜ STUB - Print only |
-| RLF | `rlf_cleanup()` | ⬜ STUB - Print only |
-| NAS | `nas_init()` | ⬜ STUB - Print only |
-| NAS | `nas_cleanup()` | ⬜ STUB - Print only |
-| QoS | `qos_flow_init()` | ⬜ STUB - Print only |
-| QoS | `qos_flow_cleanup()` | ⬜ STUB - Print only |
-
-### Other Stub Functions
-
-| Module | Function | Implementation Status |
-|--------|----------|----------------------|
-| PHY | `phy_report_csi()` | ⬜ STUB - Print only |
-| PHY | `phy_apply_ta()` | ⬜ STUB - Print only |
-| MAC | `mac_trigger_scheduling_request()` | ⬜ STUB - Print only |
-| MAC | `mac_process_scheduling_response()` | ⬜ STUB - Print only |
-| RLF | `rlf_complete_recovery()` | ⬜ STUB - Print only |
-
-**Note:** The `*_create_entity()` and `*_destroy_entity()` functions are fully implemented and handle the actual resource allocation/deallocation. The `*_init()` and `*_cleanup()` functions are module-level initializers that could be enhanced but are not critical for operation.
+**Note:** The `*_create_entity()` and `*_destroy_entity()` functions are fully implemented and handle the actual resource allocation/deallocation. The `*_init()` and `*_cleanup()` functions provide module-level initialization with proper entity creation.
 
 ---
 

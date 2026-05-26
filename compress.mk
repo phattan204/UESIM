@@ -1,6 +1,15 @@
 # Binary compression targets
-COMPRESS_TOOL ?= upx
-COMPRESS_FLAGS ?= --best --ultra-brute
+# Check if UPX is available
+UPX_AVAILABLE := $(shell command -v upx >/dev/null 2>&1 && echo yes || echo no)
+
+ifeq ($(UPX_AVAILABLE),yes)
+    COMPRESS_TOOL ?= upx
+    COMPRESS_FLAGS ?= --best
+else
+    # Fallback to no compression if UPX not available
+    COMPRESS_TOOL = echo
+    COMPRESS_FLAGS = "UPX not available, skipping compression"
+endif
 
 # Stripping and optimization
 STRIP_TOOL = strip

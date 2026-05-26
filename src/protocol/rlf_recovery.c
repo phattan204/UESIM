@@ -8,23 +8,11 @@
 #include "rlf_recovery.h"
 #include "rrc.h"
 #include "../core/memory.h"
+#include "../uesim.h"
 #include <string.h>
 #include <time.h>
 
-/* Platform-specific time functions */
-#ifdef _WIN32
-#include <windows.h>
-static uint32_t get_current_time_ms(void) {
-    return (uint32_t)GetTickCount();
-}
-#else
-#include <sys/time.h>
-static uint32_t get_current_time_ms(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
-}
-#endif
+/* Use centralized uesim_get_time_ms() from uesim.h */
 
 /* State string conversion */
 static const char* rlf_state_strings[] = {
@@ -238,7 +226,7 @@ uesim_error_t rlf_start_t310(ue_context_t* ue_ctx) {
         return UESIM_ERROR_THREAD;
     }
     
-    ctx->t310_start_time = get_current_time_ms();
+    ctx->t310_start_time = uesim_get_time_ms();
     ctx->t310_running = true;
     ctx->current_state = RLF_STATE_T310_RUNNING;
     
@@ -300,7 +288,7 @@ uesim_error_t rlf_start_t311(ue_context_t* ue_ctx) {
         return UESIM_ERROR_THREAD;
     }
     
-    ctx->t311_start_time = get_current_time_ms();
+    ctx->t311_start_time = uesim_get_time_ms();
     ctx->t311_running = true;
     
     printf("RLF: T311 timer started (%u ms)\n", ctx->t311_value_ms);
@@ -354,7 +342,7 @@ uesim_error_t rlf_start_t301(ue_context_t* ue_ctx) {
         return UESIM_ERROR_THREAD;
     }
     
-    ctx->t301_start_time = get_current_time_ms();
+    ctx->t301_start_time = uesim_get_time_ms();
     ctx->t301_running = true;
     
     printf("RLF: T301 timer started (%u ms)\n", ctx->t301_value_ms);
@@ -700,7 +688,7 @@ uesim_error_t rlf_check_timers(ue_context_t* ue_ctx) {
         return UESIM_ERROR_NOT_INITIALIZED;
     }
     
-    uint32_t current_time = get_current_time_ms();
+    uint32_t current_time = uesim_get_time_ms();
     bool timer_expired = false;
     rlf_cause_t expiry_cause = RLF_CAUSE_NONE;
     

@@ -708,6 +708,134 @@ uesim_error_t uesim_switch_serving_gnb(ue_context_t* ue_ctx, gnb_context_t* new_
     return UESIM_SUCCESS;
 }
 
+/* Connection retry configuration */
+#define UESIM_CONNECT_MAX_RETRIES       3
+#define UESIM_CONNECT_INITIAL_DELAY_MS  1000
+#define UESIM_CONNECT_MAX_DELAY_MS      10000
+#define UESIM_CONNECT_TIMEOUT_SEC       10
+
+/* Helper: Set socket non-blocking mode */
+static int set_socket_nonblocking(int sock, bool nonblock) {
+#ifdef _WIN32
+    u_long mode = nonblock ? 1 : 0;
+    return ioctlsocket(sock, FIONBIO, &mode);
+#else
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags < 0) return -1;
+    if (nonblock) {
+        flags |= O_NONBLOCK;
+    } else {
+        flags &= ~O_NONBLOCK;
+    }
+    return fcntl(sock, F_SETFL, flags);
+#endif
+}
+
+/* Helper: Wait for socket with timeout */
+static int wait_for_socket(int sock, int timeout_sec, bool for_write) {
+    fd_set fds;
+    struct timeval tv;
+    
+    FD_ZERO(&fds);
+    FD_SET(sock, &fds);
+    
+    tv.tv_sec = timeout_sec;
+    tv.tv_usec = 0;
+    
+    if (for_write) {
+        return select(sock + 1, NULL, &fds, NULL, &tv);
+    } else {
+        return select(sock + 1, &fds, NULL, NULL, &tv);
+    }
+}
+
+/* Helper: Connect with timeout and retry */
+static uesim_error_t connect_with_retry(gnb_context_t* gnb_ctx) {
+    int retry_count = 0;
+    int delay_ms = UESIM_CONNECT_INITIAL_DELAY_MS;
+    uesim_error_t last_error = UESIM_ERROR_SOCKET;
+    
+    while (retry_count < UESIM_CONNECT_MAX_RETRIES) {
+        /* Create NGAP socket */
+        gnb_ctx->ngap_socket = socket(AF_INET, SOCK_STREAM, 0);
+        if (gnb_ctx->ngap_socket < 0) {
+            fprintf(stderr, "DEBUG: Failed to create NGAP socket on attempt %d\n", retry_count + 1);
+            retry_count++;
+#ifdef _WIN32
+            Sleep(delay_ms);
+#else
+            usleep(delay_ms * 1000);
+#endif
+            delay_ms = (delay_ms * 2 < UESIM_CONNECT_MAX_DELAY_MS) ? delay_ms * 2 : UESIM_CONNECT_MAX_DELAY_MS;
+            continue;
+        }
+        
+        /* Set non-blocking for timeout */
+        if (set_socket_nonblocking(gnb_ctx->ngap_socket, true) != 0) {
+            uesim_sock_close(gnb_ctx->ngap_socket);
+            gnb_ctx->ngap_socket = -1;
+            retry_count++;
+            delay_ms = (delay_ms * 2 < UESIM_CONNECT_MAX_DELAY_MS) ? delay_ms * 2 : UESIM_CONNECT_MAX_DELAY_MS;
+            continue;
+        }
+        
+        /* Attempt connection */
+        int connect_result = connect(gnb_ctx->ngap_socket, 
+                                      (struct sockaddr*)&gnb_ctx->addr, 
+                                      sizeof(gnb_ctx->addr));
+        
+        if (connect_result == 0) {
+            /* Immediate success */
+            set_socket_nonblocking(gnb_ctx->ngap_socket, false);
+            return UESIM_SUCCESS;
+        }
+        
+        /* Check if connection is in progress */
+#ifdef _WIN32
+        int err = WSAGetLastError();
+        bool in_progress = (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS);
+#else
+        bool in_progress = (errno == EINPROGRESS || errno == EWOULDBLOCK);
+#endif
+        
+        if (in_progress) {
+            /* Wait for connection with timeout */
+            int sel_result = wait_for_socket(gnb_ctx->ngap_socket, UESIM_CONNECT_TIMEOUT_SEC, true);
+            
+            if (sel_result > 0) {
+                /* Check if connection succeeded */
+                int sock_error = 0;
+                socklen_t optlen = sizeof(sock_error);
+                if (getsockopt(gnb_ctx->ngap_socket, SOL_SOCKET, SO_ERROR, 
+                               (char*)&sock_error, &optlen) == 0 && sock_error == 0) {
+                    set_socket_nonblocking(gnb_ctx->ngap_socket, false);
+                    return UESIM_SUCCESS;
+                }
+            }
+        }
+        
+        /* Connection failed, cleanup and retry */
+        fprintf(stderr, "DEBUG: Connection attempt %d failed to %s:%d\n", 
+                retry_count + 1, inet_ntoa(gnb_ctx->addr.sin_addr), ntohs(gnb_ctx->addr.sin_port));
+        
+        uesim_sock_close(gnb_ctx->ngap_socket);
+        gnb_ctx->ngap_socket = -1;
+        last_error = UESIM_ERROR_TIMEOUT;
+        
+        retry_count++;
+        if (retry_count < UESIM_CONNECT_MAX_RETRIES) {
+#ifdef _WIN32
+            Sleep(delay_ms);
+#else
+            usleep(delay_ms * 1000);
+#endif
+            delay_ms = (delay_ms * 2 < UESIM_CONNECT_MAX_DELAY_MS) ? delay_ms * 2 : UESIM_CONNECT_MAX_DELAY_MS;
+        }
+    }
+    
+    return last_error;
+}
+
 uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     if (ue_ctx == NULL || gnb_ctx == NULL) {
         return UESIM_ERROR_INVALID_PARAM;
@@ -735,24 +863,16 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     
     gnb_ctx->state = GNB_STATE_CONNECTING;
     
-    /* Create NGAP socket for all gNB types (including Mock) */
-    /* Create NGAP socket */
-    gnb_ctx->ngap_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (gnb_ctx->ngap_socket < 0) {
-        fprintf(stderr, "DEBUG: Failed to create NGAP socket, error=%d\n", 
-#ifdef _WIN32
-                WSAGetLastError()
-#else
-                errno
-#endif
-               );
+    /* Connect with retry and timeout */
+    uesim_error_t result = connect_with_retry(gnb_ctx);
+    if (result != UESIM_SUCCESS) {
         gnb_ctx->state = GNB_STATE_DISCONNECTED;
 #ifdef _WIN32
         ReleaseMutex(gnb_ctx->gnb_mutex);
 #else
         pthread_mutex_unlock(&gnb_ctx->gnb_mutex);
 #endif
-        return UESIM_ERROR_SOCKET;
+        return result;
     }
     
     /* Create GTP-U socket */
@@ -760,33 +880,6 @@ uesim_error_t uesim_connect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
     if (gnb_ctx->gtpu_socket < 0) {
         uesim_sock_close(gnb_ctx->ngap_socket);
         gnb_ctx->ngap_socket = -1;
-        gnb_ctx->state = GNB_STATE_DISCONNECTED;
-#ifdef _WIN32
-        ReleaseMutex(gnb_ctx->gnb_mutex);
-#else
-        pthread_mutex_unlock(&gnb_ctx->gnb_mutex);
-#endif
-        return UESIM_ERROR_SOCKET;
-    }
-    
-    /* Connect to gNB */
-    printf("DEBUG: Attempting connect to %s:%d, socket=%d\n",
-           inet_ntoa(gnb_ctx->addr.sin_addr), ntohs(gnb_ctx->addr.sin_port), gnb_ctx->ngap_socket);
-    
-    if (connect(gnb_ctx->ngap_socket, (struct sockaddr*)&gnb_ctx->addr, sizeof(gnb_ctx->addr)) != 0) {
-#ifdef _WIN32
-        int err = WSAGetLastError();
-        fprintf(stderr, "DEBUG: connect() failed, error=%d (%s)\n", err, 
-                err == WSAECONNREFUSED ? "Connection refused" : 
-                err == WSAETIMEDOUT ? "Connection timed out" :
-                err == WSAENETUNREACH ? "Network unreachable" : "Unknown error");
-#else
-        fprintf(stderr, "DEBUG: connect() failed, error=%d (%s)\n", errno, strerror(errno));
-#endif
-        uesim_sock_close(gnb_ctx->ngap_socket);
-        uesim_sock_close(gnb_ctx->gtpu_socket);
-        gnb_ctx->ngap_socket = -1;
-        gnb_ctx->gtpu_socket = -1;
         gnb_ctx->state = GNB_STATE_DISCONNECTED;
 #ifdef _WIN32
         ReleaseMutex(gnb_ctx->gnb_mutex);
@@ -892,6 +985,48 @@ gnb_context_t* uesim_get_serving_gnb(ue_context_t* ue_ctx) {
         return NULL;
     }
     return ue_ctx->serving_gnb;
+}
+
+/* Reconnect to gNB with retry */
+uesim_error_t uesim_reconnect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
+    if (ue_ctx == NULL || gnb_ctx == NULL) {
+        return UESIM_ERROR_INVALID_PARAM;
+    }
+    
+    /* First disconnect if connected */
+    if (gnb_ctx->state == GNB_STATE_CONNECTED) {
+        uesim_disconnect_gnb(ue_ctx, gnb_ctx);
+    }
+    
+    /* Then reconnect */
+    return uesim_connect_gnb(ue_ctx, gnb_ctx);
+}
+
+/* Check gNB connection health */
+bool uesim_is_gnb_connected(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx) {
+    if (ue_ctx == NULL || gnb_ctx == NULL) {
+        return false;
+    }
+    
+    bool connected = false;
+    
+#ifdef _WIN32
+    WaitForSingleObject(gnb_ctx->gnb_mutex, INFINITE);
+#else
+    if (pthread_mutex_lock(&gnb_ctx->gnb_mutex) != 0) {
+        return false;
+    }
+#endif
+    
+    connected = (gnb_ctx->state == GNB_STATE_CONNECTED && gnb_ctx->ngap_socket >= 0);
+    
+#ifdef _WIN32
+    ReleaseMutex(gnb_ctx->gnb_mutex);
+#else
+    pthread_mutex_unlock(&gnb_ctx->gnb_mutex);
+#endif
+    
+    return connected;
 }
 
 uint8_t uesim_get_candidate_gnb_count(ue_context_t* ue_ctx) {

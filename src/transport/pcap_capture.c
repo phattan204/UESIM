@@ -59,6 +59,10 @@ uint16_t pcap_calc_checksum(const uint8_t* data, size_t len) {
 static uint32_t crc32c_table[256];
 static int crc32c_table_initialized = 0;
 
+/* Forward declarations for static functions to avoid -Wmissing-prototypes */
+static void init_crc32c_table(void);
+static uint32_t calc_crc32c(const uint8_t* data, size_t len);
+
 static void init_crc32c_table(void) {
     if (crc32c_table_initialized) return;
     
@@ -425,8 +429,45 @@ uesim_error_t pcap_capture_udp(pcap_capture_t* pcap, const uint8_t* payload,
     buf[3] = dst_port & 0xFF;
     buf[4] = (udp_len >> 8) & 0xFF;
     buf[5] = udp_len & 0xFF;
-    buf[6] = 0x00; /* Checksum (optional for IPv4) */
-    buf[7] = 0x00;
+    
+    /* Calculate UDP checksum (optional for IPv4, but good for debugging) */
+    /* UDP pseudo-header: src_ip(4) + dst_ip(4) + zero(1) + protocol(1) + udp_len(2) = 12 bytes */
+    uint8_t pseudo_header[12];
+    pseudo_header[0] = (src_ip >> 24) & 0xFF;
+    pseudo_header[1] = (src_ip >> 16) & 0xFF;
+    pseudo_header[2] = (src_ip >> 8) & 0xFF;
+    pseudo_header[3] = src_ip & 0xFF;
+    pseudo_header[4] = (dst_ip >> 24) & 0xFF;
+    pseudo_header[5] = (dst_ip >> 16) & 0xFF;
+    pseudo_header[6] = (dst_ip >> 8) & 0xFF;
+    pseudo_header[7] = dst_ip & 0xFF;
+    pseudo_header[8] = 0x00;
+    pseudo_header[9] = 17;  /* UDP protocol */
+    pseudo_header[10] = (udp_len >> 8) & 0xFF;
+    pseudo_header[11] = udp_len & 0xFF;
+    
+    /* Calculate checksum over pseudo-header + UDP header + payload */
+    uint16_t udp_checksum = pcap_calc_checksum(pseudo_header, 12);
+    udp_checksum = ~udp_checksum;  /* Final one's complement */
+    
+    /* Add UDP header and payload to checksum */
+    uint32_t sum = udp_checksum;
+    for (size_t i = 0; i < 8; i += 2) {
+        sum += (buf[i] << 8) | buf[i + 1];
+    }
+    for (size_t i = 0; i < len; i += 2) {
+        uint16_t word = (payload[i] << 8);
+        if (i + 1 < len) word |= payload[i + 1];
+        sum += word;
+    }
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    udp_checksum = (uint16_t)~sum;
+    
+    /* Use 0x0000 if checksum calculation fails or for simplicity */
+    buf[6] = (udp_checksum >> 8) & 0xFF;
+    buf[7] = udp_checksum & 0xFF;
     
     /* Copy payload */
     memcpy(buf + 8, payload, len);

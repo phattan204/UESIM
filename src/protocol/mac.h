@@ -316,8 +316,13 @@ typedef struct {
     mac_ul_grant_t ul_grants[MAC_MAX_UL_GRANTS]; // UL grants
     mac_dl_grant_t dl_grants[MAC_MAX_DL_GRANTS]; // DL grants
     mac_stats_t stats;          // MAC statistics
+#ifdef _WIN32
+    volatile LONG tb_counter;     // TB counter
+    volatile LONG ce_counter;     // CE counter
+#else
     atomic_uint tb_counter;     // TB counter
     atomic_uint ce_counter;     // CE counter
+#endif
     bool active;                // MAC entity active
     pthread_mutex_t mac_mutex;  // MAC entity protection
     pthread_cond_t mac_cond;    // MAC entity signaling

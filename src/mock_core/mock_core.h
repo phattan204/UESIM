@@ -7,19 +7,25 @@
 #ifndef MOCK_CORE_H
 #define MOCK_CORE_H
 
+/* Windows: Set version BEFORE any includes */
+#ifdef _WIN32
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0A00
+#endif
+#ifndef WINVER
+#define WINVER 0x0A00
+#endif
+#endif
+
 #include "../uesim.h"
 #include "../protocol/ngap_messages.h"
+#include "../protocol/f1ap_messages.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
 
 #ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <windows.h>
-typedef HANDLE pthread_t;
-typedef HANDLE pthread_mutex_t;
-typedef HANDLE pthread_cond_t;
 #else
 #include <pthread.h>
 #include <sys/socket.h>
@@ -138,6 +144,10 @@ typedef struct {
     uint64_t tx_packets;
     uint64_t rx_bytes;
     uint64_t tx_bytes;
+    /* PFCP session info */
+    uint64_t pfcp_seid;
+    struct sockaddr_in smf_addr;
+    bool active;
 } upf_tunnel_t;
 
 /* ============== AMF Configuration ============== */
@@ -170,8 +180,10 @@ typedef struct {
 
 typedef struct {
     char bind_ip[46];
+    uint16_t pfcp_port;
     uint32_t smf_id;
     char smf_name[64];
+    char upf_ip[46];
     
     /* Network Slicing */
     uint8_t default_sst;
@@ -502,7 +514,7 @@ typedef struct {
     
     /* Served Cells */
     uint8_t num_served_cells;
-    void* served_cells;  /* f1ap_served_cell_info_t* */
+    f1ap_served_cell_info_t served_cells[F1AP_MAX_CELL_COUNT];
     
     /* RRC Version */
     uint8_t rrc_version[4];
@@ -564,6 +576,7 @@ mock_core_error_t nas_generate_pdu_session_accept(uint8_t pdu_session_id, uint32
 typedef enum {
     CU_UP_STATE_IDLE = 0,
     CU_UP_STATE_E1_SETUP_PENDING,
+    CU_UP_STATE_CONNECTING,
     CU_UP_STATE_ACTIVE,
     CU_UP_STATE_RESETTING,
     CU_UP_STATE_MAX
@@ -602,7 +615,7 @@ cu_up_server_t* cu_up_create(const cu_up_config_t* config);
 void cu_up_destroy(cu_up_server_t* cu_up);
 mock_core_error_t cu_up_start(cu_up_server_t* cu_up);
 void cu_up_stop(cu_up_server_t* cu_up);
-void cu_up_get_default_config(void* config);
+void cu_up_get_default_config(cu_up_config_t* config);
 
 /* CU-UP E1 Connection */
 mock_core_error_t cu_up_connect_cu_cp(cu_up_server_t* cu_up, const char* cu_cp_ip, uint16_t port);

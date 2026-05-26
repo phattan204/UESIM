@@ -365,11 +365,12 @@ mock_gnb_error_t mock_gnb_generate_ng_setup_response(void** response, size_t* le
 /**
  * Generate RRC Setup message
  * @param transaction_id Transaction ID
+ * @param ran_ue_ngap_id RAN-UE-NGAP-ID for C-RNTI generation
  * @param response Output buffer
  * @param len Output length
  * @return MOCK_GNB_SUCCESS or error code
  */
-mock_gnb_error_t mock_gnb_generate_rrc_setup(uint32_t transaction_id, void** response, size_t* len);
+mock_gnb_error_t mock_gnb_generate_rrc_setup(uint32_t transaction_id, uint32_t ran_ue_ngap_id, void** response, size_t* len);
 
 /**
  * Generate Registration Accept

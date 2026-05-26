@@ -21,7 +21,11 @@
 // Global variables
 static thread_pool_t* g_thread_pool = NULL;
 static ue_context_t* g_ue_instances[MAX_UE_INSTANCES] = {NULL};
+#ifdef _WIN32
+static volatile LONG g_active_ue_count = 0;
+#else
 static atomic_int g_active_ue_count = 0;
+#endif
 static bool g_running = false;
 uesim_config_t g_config = {0};
 
@@ -431,7 +435,11 @@ static uesim_error_t create_ue_instances(int count) {
         }
         
         g_ue_instances[i] = ue_ctx;
+#ifdef _WIN32
+        InterlockedExchangeAdd(&g_active_ue_count, 1);
+#else
         atomic_fetch_add(&g_active_ue_count, 1);
+#endif
     }
     
     return UESIM_SUCCESS;
@@ -452,7 +460,11 @@ int uesim_get_ue_instance_count(void) {
 }
 
 int uesim_get_active_ue_count(void) {
+#ifdef _WIN32
+    return InterlockedCompareExchange(&g_active_ue_count, 0, 0);
+#else
     return atomic_load(&g_active_ue_count);
+#endif
 }
 
 /* Test Mode Implementation */

@@ -4,13 +4,6 @@
  * 3GPP TS 38.463 - E1AP Interface (CU-CP to CU-UP)
  */
 
-#include "mock_core.h"
-#include "../protocol/e1ap_messages.h"
-#include "../protocol/asn1_per.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -21,23 +14,19 @@
 #include <unistd.h>
 #endif
 
+#include "mock_core.h"
+#include "../protocol/e1ap_messages.h"
+#include "../protocol/asn1_per.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* ============== Constants ============== */
 
-#define CU_UP_MAX_CU_CP_CONNECTIONS  4
-#define CU_UP_MAX_BEARER_CONTEXTS    1024
+#define CU_UP_LOCAL_MAX_BEARER       64
 #define CU_UP_E1AP_PORT              38462
 #define CU_UP_BUFFER_SIZE            65536
 #define CU_UP_MAX_DRB_PER_UE         8
-
-/* ============== CU-UP States ============== */
-
-typedef enum {
-    CU_UP_STATE_IDLE = 0,
-    CU_UP_STATE_E1_SETUP_PENDING,
-    CU_UP_STATE_ACTIVE,
-    CU_UP_STATE_RESETTING,
-    CU_UP_STATE_MAX
-} cu_up_state_t;
 
 /* ============== CU-CP Connection Context ============== */
 
@@ -87,38 +76,7 @@ typedef struct {
     bool active;
 } cu_up_bearer_context_t;
 
-/* ============== CU-UP Configuration ============== */
-
-typedef struct {
-    char bind_ip[46];
-    uint16_t e1ap_port;
-    
-    /* gNB-CU-UP Identity */
-    uint32_t gnb_cu_up_id;
-    char gnb_cu_up_name[64];
-    
-    /* Supported PLMNs and S-NSSAIs */
-    uint8_t num_supported_plmns;
-    uint8_t supported_plmns[12][3];
-    uint8_t num_supported_slices;
-    e1ap_s_nssai_t supported_slices[E1AP_MAX_QOS_FLOWS];
-    
-    /* Capacity */
-    uint32_t capacity;
-    
-    /* TNL Addresses */
-    uint8_t num_tnla;
-    e1ap_tnl_info_t tnla[E1AP_MAX_TNL_INFO];
-    
-    /* Behavior */
-    bool auto_respond;
-    bool log_messages;
-    
-    /* PCAP */
-    char pcap_file[256];
-} cu_up_config_t;
-
-/* ============== CU-UP Server Context ============== */
+/* ============== CU-UP Server Context Definition ============== */
 
 struct cu_up_server_s {
     cu_up_config_t config;
@@ -130,7 +88,7 @@ struct cu_up_server_s {
     cu_cp_connection_t cu_cp_connection;
     
     /* Bearer Contexts */
-    cu_up_bearer_context_t bearer_contexts[CU_UP_MAX_BEARER_CONTEXTS];
+    cu_up_bearer_context_t bearer_contexts[CU_UP_LOCAL_MAX_BEARER];
     uint32_t num_bearer_contexts;
     uint32_t next_cu_up_ue_id;
     
@@ -154,9 +112,6 @@ struct cu_up_server_s {
     uint64_t pdu_sessions_released;
 };
 
-/* Forward declaration */
-typedef struct cu_up_server_s cu_up_server_t;
-
 /* ============== Forward Declarations ============== */
 
 static void* e1ap_listener_thread(void* arg);
@@ -173,18 +128,14 @@ void cu_up_get_default_config(cu_up_config_t* config) {
     strncpy(config->gnb_cu_up_name, "UESim-CU-UP", sizeof(config->gnb_cu_up_name) - 1);
     
     /* Default PLMN: 001/01 */
-    config->num_supported_plmns = 1;
-    config->supported_plmns[0][0] = 0x00;
-    config->supported_plmns[0][1] = 0x01;
-    config->supported_plmns[0][2] = 0xF1;  /* MCC=001, MNC=01 */
+    config->plmn_mcc[0] = 0x00;
+    config->plmn_mcc[1] = 0x01;
+    config->plmn_mcc[2] = 0xF1;
+    config->plmn_mnc[0] = 0x00;
+    config->plmn_mnc[1] = 0x01;
+    config->plmn_mnc[2] = 0xF1;
+    config->mnc_length = 2;
     
-    /* Default slice */
-    config->num_supported_slices = 1;
-    config->supported_slices[0].sst = 1;
-    config->supported_slices[0].sd = 0;
-    config->supported_slices[0].sd_present = false;
-    
-    config->capacity = 100;
     config->auto_respond = true;
     config->log_messages = true;
 }
@@ -383,9 +334,9 @@ static int cu_up_handle_e1_setup_request(cu_up_server_t* cu_up,
     resp->gnb_cu_cp_id.gnb_cu_cp_id = cu_up->config.gnb_cu_up_id;  /* Using our ID */
     strncpy(resp->gnb_cu_cp_id.gnb_cu_cp_name, cu_up->config.gnb_cu_up_name,
             sizeof(resp->gnb_cu_cp_id.gnb_cu_cp_name) - 1);
-    resp->num_supported_plmns = cu_up->config.num_supported_plmns;
-    memcpy(resp->supported_plmns, cu_up->config.supported_plmns,
-           sizeof(cu_up->config.supported_plmns));
+    /* PLMN info from config */
+    resp->num_supported_plmns = 1;
+    memcpy(resp->supported_plmns[0], cu_up->config.plmn_mcc, 3);
     
     return 0;
 }
@@ -393,7 +344,7 @@ static int cu_up_handle_e1_setup_request(cu_up_server_t* cu_up,
 static cu_up_bearer_context_t* cu_up_create_bearer_context(cu_up_server_t* cu_up) {
     if (!cu_up) return NULL;
     
-    for (int i = 0; i < CU_UP_MAX_BEARER_CONTEXTS; i++) {
+    for (int i = 0; i < CU_UP_LOCAL_MAX_BEARER; i++) {
         if (!cu_up->bearer_contexts[i].active) {
             cu_up_bearer_context_t* ctx = &cu_up->bearer_contexts[i];
             memset(ctx, 0, sizeof(cu_up_bearer_context_t));
@@ -499,7 +450,7 @@ mock_core_error_t cu_up_process_e1ap_message(cu_up_server_t* cu_up,
                    cmd->ue_ids.gnb_cu_cp_ue_e1ap_id);
             
             /* Find and release bearer context */
-            for (int i = 0; i < CU_UP_MAX_BEARER_CONTEXTS; i++) {
+            for (int i = 0; i < CU_UP_LOCAL_MAX_BEARER; i++) {
                 if (cu_up->bearer_contexts[i].active &&
                     cu_up->bearer_contexts[i].gnb_cu_cp_ue_e1ap_id == cmd->ue_ids.gnb_cu_cp_ue_e1ap_id) {
                     cu_up->bearer_contexts[i].active = false;

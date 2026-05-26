@@ -7,6 +7,12 @@
 #include "mock_core.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 
 /* ============== Forward Declarations ============== */
 
@@ -501,7 +507,8 @@ static mock_core_error_t process_pfcp_message(upf_server_t* upf, const uint8_t* 
                 uint64_t upf_seid = ((uint64_t)upf_teid << 32) | seid;
                 memcpy(&resp[resp_len], &upf_seid, 8);
                 resp_len += 8;
-                memcpy(&resp[resp_len], &ip, 4);
+                uint32_t upf_ip = upf->config.tunnels[0].peer_ip; /* UPF IP address */
+                memcpy(&resp[resp_len], &upf_ip, 4);
                 resp_len += 4;
                 
                 resp_hdr->message_length = htons((uint16_t)(resp_len - 4));

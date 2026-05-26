@@ -22,22 +22,18 @@
 #include <stdbool.h>
 #include <time.h>
 
+/* Include component headers for type definitions */
+#include "../mock_core/mock_core.h"
+#include "../mock_gnb/mock_gnb_server.h"
+
 #ifdef _WIN32
 #include <winsock2.h>
 #else
 #include <pthread.h>
 #endif
 
-/* Forward declarations */
-typedef struct amf_server_s amf_server_t;
-typedef struct smf_server_s smf_server_t;
-typedef struct upf_server_s upf_server_t;
-typedef struct cu_cp_server_s cu_cp_server_t;
-typedef struct du_server_s du_server_t;
-typedef struct cu_up_server_s cu_up_server_t;
-typedef struct xnap_server_s xnap_server_t;
-typedef struct mock_gnb_server_s mock_gnb_server_t;
-/* Note: ue_context_t is defined in uesim.h - include uesim.h before this header */
+/* Forward declarations - these types are defined in their respective headers */
+/* Note: Include uesim.h before this header for ue_context_t */
 
 /* ============== Constants ============== */
 
@@ -59,7 +55,9 @@ typedef enum {
     MOCK_TEST_ERROR_ALREADY_RUNNING = -7,
     MOCK_TEST_ERROR_NOT_RUNNING = -8,
     MOCK_TEST_ERROR_COMPONENT = -9,
-    MOCK_TEST_ERROR_PROTOCOL = -10
+    MOCK_TEST_ERROR_PROTOCOL = -10,
+    MOCK_TEST_ERROR_CAPACITY = -11,
+    MOCK_TEST_ERROR_NOT_FOUND = -12
 } mock_test_error_t;
 
 /* ============== Component States ============== */
@@ -408,5 +406,68 @@ void mock_test_env_print_status(const mock_test_env_t* env);
  * @param env Test environment
  */
 void mock_test_env_print_stats(const mock_test_env_t* env);
+
+/* ============== Component Health Check ============== */
+
+/**
+ * Component health status
+ */
+typedef enum {
+    MOCK_TEST_HEALTH_UNKNOWN = 0,
+    MOCK_TEST_HEALTH_HEALTHY = 1,
+    MOCK_TEST_HEALTH_DEGRADED = 2,
+    MOCK_TEST_HEALTH_UNHEALTHY = 3
+} mock_test_health_status_t;
+
+/**
+ * Component health info
+ */
+typedef struct {
+    mock_test_health_status_t status;
+    uint32_t error_count;
+    uint32_t last_error_code;
+    char last_error_msg[128];
+    uint64_t last_activity_ms;
+} mock_test_component_health_t;
+
+/**
+ * Full health check result
+ */
+typedef struct {
+    mock_test_component_health_t amf;
+    mock_test_component_health_t smf;
+    mock_test_component_health_t upf;
+    mock_test_component_health_t cu_cp;
+    mock_test_component_health_t du;
+    mock_test_component_health_t cu_up;
+    mock_test_component_health_t xnap;
+    mock_test_component_health_t gnb_server;
+    uint32_t total_errors;
+    uint32_t unhealthy_count;
+} mock_test_health_check_t;
+
+/**
+ * Perform health check on all components
+ * @param env Test environment
+ * @param health Health check result (output)
+ * @return MOCK_TEST_SUCCESS or error code
+ */
+mock_test_error_t mock_test_env_health_check(const mock_test_env_t* env, 
+                                              mock_test_health_check_t* health);
+
+/**
+ * Check if specific component is healthy
+ * @param env Test environment
+ * @param component Component name ("amf", "smf", "upf", "cu_cp", "du", "cu_up", "xnap", "gnb_server")
+ * @return Health status
+ */
+mock_test_health_status_t mock_test_env_check_component_health(const mock_test_env_t* env,
+                                                                 const char* component);
+
+/**
+ * Print health check results
+ * @param health Health check result
+ */
+void mock_test_env_print_health_check(const mock_test_health_check_t* health);
 
 #endif /* MOCK_TEST_ENV_H */

@@ -30,17 +30,6 @@
 #define DU_MAX_DRB_PER_UE        8
 #define DU_MAX_SRB_PER_UE        3
 
-/* ============== DU States ============== */
-
-typedef enum {
-    DU_STATE_IDLE = 0,
-    DU_STATE_CONNECTING,
-    DU_STATE_F1_SETUP_PENDING,
-    DU_STATE_ACTIVE,
-    DU_STATE_RESETTING,
-    DU_STATE_MAX
-} du_state_t;
-
 /* ============== CU Connection Context ============== */
 
 typedef struct {
@@ -91,36 +80,6 @@ typedef struct {
     time_t last_activity;
     bool active;
 } du_ue_context_t;
-
-/* ============== DU Configuration ============== */
-
-typedef struct {
-    char cu_cp_ip[46];
-    uint16_t cu_cp_port;
-    char bind_ip[46];
-    
-    /* gNB-DU Identity */
-    uint32_t gnb_du_id;
-    char gnb_du_name[64];
-    
-    /* Served Cells */
-    uint8_t num_served_cells;
-    f1ap_served_cell_info_t served_cells[F1AP_MAX_CELL_COUNT];
-    
-    /* RRC Version */
-    uint8_t rrc_version[4];
-    
-    /* RANAC */
-    uint8_t ranac;
-    
-    /* Behavior */
-    bool auto_respond;
-    bool log_messages;
-    uint32_t response_delay_ms;
-    
-    /* PCAP */
-    char pcap_file[256];
-} du_config_t;
 
 /* ============== DU Server Context ============== */
 

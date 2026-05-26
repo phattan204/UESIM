@@ -6,20 +6,11 @@
 #include "rrc_si.h"
 #include "asn1_per.h"
 #include "../core/memory.h"
+#include "../uesim.h"
 #include <string.h>
 #include <stdio.h>
 
-/* Platform-specific time */
-#ifdef _WIN32
-#include <windows.h>
-static uint32_t get_current_time_ms(void) { return (uint32_t)GetTickCount(); }
-#else
-#include <sys/time.h>
-static uint32_t get_current_time_ms(void) {
-    struct timeval tv; gettimeofday(&tv, NULL);
-    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
-}
-#endif
+/* Use centralized uesim_get_time_ms() from uesim.h */
 
 /* SI Context Management */
 uesim_error_t rrc_si_init(rrc_si_context_t* ctx) {
@@ -105,7 +96,7 @@ uesim_error_t rrc_handle_mib(ue_context_t* ue_ctx, const uint8_t* data, size_t l
     
     si_ctx->mib = mib;
     si_ctx->mib_valid = true;
-    si_ctx->last_mib_time = get_current_time_ms();
+    si_ctx->last_mib_time = uesim_get_time_ms();
     si_ctx->sfn = mib.sfn;
     
     printf("RRC SI: MIB received - SFN=%u, SCS=%u, CellBarred=%u\n",
@@ -124,7 +115,7 @@ bool rrc_is_mib_valid(rrc_si_context_t* ctx) {
     if (!ctx) return false;
     
     /* MIB validity period is 160ms */
-    uint32_t now = get_current_time_ms();
+    uint32_t now = uesim_get_time_ms();
     return ctx->mib_valid && (now - ctx->last_mib_time < 160);
 }
 
@@ -182,7 +173,7 @@ uesim_error_t rrc_handle_sib1(ue_context_t* ue_ctx, const uint8_t* data, size_t 
     
     si_ctx->sib1 = sib1;
     si_ctx->sib1_valid = true;
-    si_ctx->last_sib1_time = get_current_time_ms();
+    si_ctx->last_sib1_time = uesim_get_time_ms();
     
     printf("RRC SI: SIB1 received - PLMN=%u-%u, TAC=%u, CellID=%u, Reserved=%d\n",
            sib1.plmn_id.mcc, sib1.plmn_id.mnc, sib1.tac, sib1.cell_id, sib1.cell_reserved);
@@ -199,7 +190,7 @@ bool rrc_is_sib1_valid(rrc_si_context_t* ctx) {
     if (!ctx) return false;
     
     /* SIB1 validity period is typically 600s (10 minutes) */
-    uint32_t now = get_current_time_ms();
+    uint32_t now = uesim_get_time_ms();
     return ctx->sib1_valid && (now - ctx->last_sib1_time < 600000);
 }
 
@@ -249,7 +240,7 @@ uesim_error_t rrc_handle_sib2(ue_context_t* ue_ctx, const uint8_t* data, size_t 
     
     si_ctx->sib2 = sib2;
     si_ctx->sib2_valid = true;
-    si_ctx->last_si_time = get_current_time_ms();
+    si_ctx->last_si_time = uesim_get_time_ms();
     
     printf("RRC SI: SIB2 received - Priority=%u, Q_Hyst=%u\n",
            sib2.intra_freq.priority, sib2.q_hyst);
@@ -307,7 +298,7 @@ uesim_error_t rrc_handle_sib3(ue_context_t* ue_ctx, const uint8_t* data, size_t 
     
     si_ctx->sib3 = sib3;
     si_ctx->sib3_valid = true;
-    si_ctx->last_si_time = get_current_time_ms();
+    si_ctx->last_si_time = uesim_get_time_ms();
     
     printf("RRC SI: SIB3 received - EARFCN=%u, Neighbors=%u\n",
            sib3.intra_freq_earfcn, sib3.num_neighbors);

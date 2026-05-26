@@ -14,6 +14,7 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -23,23 +24,14 @@
 
 /* ============== Constants ============== */
 
-#define XNAP_MAX_NEIGHBOR_GNBS      32
-#define XNAP_MAX_UE_CONTEXTS        1024
+#define XNAP_LOCAL_MAX_NEIGHBORS    32
+#define XNAP_LOCAL_MAX_UE_CONTEXTS  1024
 #define XNAP_DEFAULT_PORT           38422
 #define XNAP_BUFFER_SIZE            65536
 
-/* ============== XnAP States ============== */
+/* ============== Local Types (use mock_core.h types for API) ============== */
 
-typedef enum {
-    XNAP_STATE_IDLE = 0,
-    XNAP_STATE_XN_SETUP_PENDING,
-    XNAP_STATE_ACTIVE,
-    XNAP_STATE_RESETTING,
-    XNAP_STATE_MAX
-} xnap_state_t;
-
-/* ============== Neighbor gNB Context ============== */
-
+/* Neighbor gNB Context (local) */
 typedef struct {
     uint64_t gnb_id;
     char gnb_name[64];
@@ -57,8 +49,7 @@ typedef struct {
     bool active;
 } xnap_neighbor_gnb_t;
 
-/* ============== XnAP UE Context ============== */
-
+/* XnAP UE Context (local) */
 typedef struct {
     uint32_t source_gnb_ue_xnap_id;
     uint32_t target_gnb_ue_xnap_id;
@@ -75,34 +66,12 @@ typedef struct {
     xnap_drb_info_t drbs[XNAP_MAX_DRB_COUNT];
     
     /* State */
-    uint8_t ho_state;  /* 0=idle, 1=preparing, 2=prepared, 3=executing, 4=completed */
+    uint8_t ho_state;
     time_t setup_time;
     bool active;
 } xnap_ue_context_t;
 
-/* ============== XnAP Configuration ============== */
-
-typedef struct {
-    char bind_ip[46];
-    uint16_t xnap_port;
-    
-    /* gNB Identity */
-    uint64_t gnb_id;
-    char gnb_name[64];
-    
-    /* Served Cells */
-    uint8_t num_served_cells;
-    xnap_served_cell_info_t served_cells[XNAP_MAX_SERVED_CELL_COUNT];
-    
-    /* Behavior */
-    bool auto_respond;
-    bool log_messages;
-    
-    /* PCAP */
-    char pcap_file[256];
-} xnap_config_t;
-
-/* ============== XnAP Server Context ============== */
+/* ============== XnAP Server Context (local definition) ============== */
 
 struct xnap_server_s {
     xnap_config_t config;
@@ -111,11 +80,11 @@ struct xnap_server_s {
     int listen_socket;
     
     /* Neighbor gNBs */
-    xnap_neighbor_gnb_t neighbors[XNAP_MAX_NEIGHBOR_GNBS];
+    xnap_neighbor_gnb_t neighbors[XNAP_LOCAL_MAX_NEIGHBORS];
     uint32_t num_neighbors;
     
     /* UE Contexts (for handover) */
-    xnap_ue_context_t ue_contexts[XNAP_MAX_UE_CONTEXTS];
+    xnap_ue_context_t ue_contexts[XNAP_LOCAL_MAX_UE_CONTEXTS];
     uint32_t num_ue_contexts;
     uint32_t next_ue_xnap_id;
     
@@ -148,21 +117,16 @@ static void* xnap_listener_thread(void* arg);
 
 /* ============== XnAP API Functions ============== */
 
-void xnap_get_default_config(xnap_config_t* config) {
+void xnap_get_default_config(void* config_ptr) {
+    xnap_config_t* config = (xnap_config_t*)config_ptr;
     if (!config) return;
     memset(config, 0, sizeof(xnap_config_t));
     
     strncpy(config->bind_ip, "0.0.0.0", sizeof(config->bind_ip) - 1);
-    config->xnap_port = XNAP_DEFAULT_PORT;
+    config->port = XNAP_DEFAULT_PORT;
     config->gnb_id = 0x00000001;
     strncpy(config->gnb_name, "UESim-gNB-Xn", sizeof(config->gnb_name) - 1);
-    
-    /* Default served cell */
-    config->num_served_cells = 1;
-    config->served_cells[0].nr_cell_id.nr_cell_id = 0x123456789ABULL;
-    config->served_cells[0].pci.pci = 1;
-    config->served_cells[0].tac.tac = 1;
-    
+    config->max_neighbors = XNAP_LOCAL_MAX_NEIGHBORS;
     config->auto_respond = true;
     config->log_messages = true;
 }
@@ -216,7 +180,7 @@ static void* xnap_listener_thread(void* arg) {
     struct timeval tv;
     int max_fd;
     
-    printf("[XnAP] Listener thread started on port %u\n", server->config.xnap_port);
+    printf("[XnAP] Listener thread started on port %u\n", server->config.port);
     
     while (atomic_load(&server->running)) {
         FD_ZERO(&read_fds);
@@ -301,7 +265,7 @@ mock_core_error_t xnap_start(xnap_server_t* server) {
     /* Bind */
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(server->config.xnap_port);
+    addr.sin_port = htons(server->config.port);
     inet_pton(AF_INET, server->config.bind_ip, &addr.sin_addr);
     
     if (bind(server->listen_socket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
@@ -351,7 +315,7 @@ mock_core_error_t xnap_start(xnap_server_t* server) {
     }
     
     printf("[XnAP] Server started on %s:%u\n",
-           server->config.bind_ip, server->config.xnap_port);
+           server->config.bind_ip, server->config.port);
     return MOCK_CORE_SUCCESS;
 }
 
@@ -389,14 +353,12 @@ static int xnap_handle_xn_setup_request(xnap_server_t* server,
     const xnap_xn_setup_request_t* setup_req = &req->payload.xn_setup_request;
     
     printf("[XnAP] Xn Setup Request from gNB ID: 0x%llX\n",
-           (unsigned long long)setup_req->gnb_id.gnb_id);
-    printf("[XnAP]   gNB Name: %s\n", setup_req->gnb_id.gnb_name);
+           (unsigned long long)setup_req->global_gnb_id.gnb_id);
     printf("[XnAP]   Served Cells: %d\n", setup_req->num_served_cells);
     
     /* Store neighbor info */
     xnap_neighbor_gnb_t* neighbor = &server->neighbors[neighbor_idx];
-    neighbor->gnb_id = setup_req->gnb_id.gnb_id;
-    strncpy(neighbor->gnb_name, setup_req->gnb_id.gnb_name, sizeof(neighbor->gnb_name) - 1);
+    neighbor->gnb_id = setup_req->global_gnb_id.gnb_id;
     neighbor->num_served_cells = setup_req->num_served_cells;
     for (int i = 0; i < setup_req->num_served_cells && i < XNAP_MAX_SERVED_CELL_COUNT; i++) {
         memcpy(&neighbor->served_cells[i], &setup_req->served_cells[i],
@@ -413,13 +375,8 @@ static int xnap_handle_xn_setup_request(xnap_server_t* server,
     response->criticality = 0;
     
     xnap_xn_setup_response_t* resp = &response->payload.xn_setup_response;
-    resp->gnb_id.gnb_id = server->config.gnb_id;
-    strncpy(resp->gnb_id.gnb_name, server->config.gnb_name, sizeof(resp->gnb_id.gnb_name) - 1);
-    resp->num_served_cells = server->config.num_served_cells;
-    for (int i = 0; i < server->config.num_served_cells && i < XNAP_MAX_SERVED_CELL_COUNT; i++) {
-        memcpy(&resp->served_cells[i], &server->config.served_cells[i],
-               sizeof(xnap_served_cell_info_t));
-    }
+    resp->global_gnb_id.gnb_id = server->config.gnb_id;
+    resp->num_served_cells = 0;
     
     return 0;
 }
@@ -432,10 +389,10 @@ static int xnap_handle_handover_request(xnap_server_t* server,
     const xnap_handover_request_t* ho_req = &req->payload.handover_request;
     
     printf("[XnAP] Handover Request:\n");
-    printf("[XnAP]   Source gNB UE XnAP ID: %u\n", ho_req->source_gnb_ue_xnap_id);
+    printf("[XnAP]   Source gNB UE XnAP ID: %u\n", ho_req->ue_ids.source_gnb_ue_xnap_id);
     printf("[XnAP]   Target Cell ID: 0x%llX\n",
            (unsigned long long)ho_req->target_cell_id.nr_cell_id);
-    printf("[XnAP]   DRBs: %d\n", ho_req->num_drbs);
+    printf("[XnAP]   DRBs to Setup: %d\n", ho_req->num_drbs_to_setup);
     
     /* Find or create UE context */
     pthread_mutex_lock(&server->ue_mutex);
@@ -445,7 +402,7 @@ static int xnap_handle_handover_request(xnap_server_t* server,
             ue = &server->ue_contexts[i];
             memset(ue, 0, sizeof(xnap_ue_context_t));
             ue->target_gnb_ue_xnap_id = server->next_ue_xnap_id++;
-            ue->source_gnb_ue_xnap_id = ho_req->source_gnb_ue_xnap_id;
+            ue->source_gnb_ue_xnap_id = ho_req->ue_ids.source_gnb_ue_xnap_id;
             ue->active = true;
             ue->ho_state = 2;  /* Prepared */
             ue->setup_time = time(NULL);
@@ -465,9 +422,9 @@ static int xnap_handle_handover_request(xnap_server_t* server,
     }
     
     /* Store DRB info */
-    ue->num_drbs = ho_req->num_drbs;
-    for (int i = 0; i < ho_req->num_drbs && i < XNAP_MAX_DRB_COUNT; i++) {
-        memcpy(&ue->drbs[i], &ho_req->drbs[i], sizeof(xnap_drb_info_t));
+    ue->num_drbs = ho_req->num_drbs_to_setup;
+    for (int i = 0; i < ho_req->num_drbs_to_setup && i < XNAP_MAX_DRB_COUNT; i++) {
+        memcpy(&ue->drbs[i], &ho_req->drbs_to_setup[i], sizeof(xnap_drb_info_t));
     }
     
     /* Build Handover Request Acknowledge */
@@ -475,17 +432,10 @@ static int xnap_handle_handover_request(xnap_server_t* server,
     response->procedure_code = XNAP_PROC_HANDOVER_PREPARATION;
     response->criticality = 0;
     
-    xnap_handover_request_acknowledge_t* ack = &response->payload.handover_request_acknowledge;
-    ack->source_gnb_ue_xnap_id = ue->source_gnb_ue_xnap_id;
-    ack->target_gnb_ue_xnap_id = ue->target_gnb_ue_xnap_id;
+    xnap_handover_request_ack_t* ack = &response->payload.handover_request_ack;
+    ack->ue_ids.source_gnb_ue_xnap_id = ue->source_gnb_ue_xnap_id;
+    ack->ue_ids.target_gnb_ue_xnap_id = ue->target_gnb_ue_xnap_id;
     ack->num_drbs_setup = ue->num_drbs;
-    
-    /* DL Forwarding TNL (would be allocated) */
-    for (int i = 0; i < ue->num_drbs && i < XNAP_MAX_DRB_COUNT; i++) {
-        ack->dl_forwarding_tnl[i].ip_address = inet_addr(server->config.bind_ip);
-        ack->dl_forwarding_tnl[i].teid = (uint32_t)(ue->target_gnb_ue_xnap_id << 8 | i);
-        ack->dl_forwarding_tnl[i].port = 2152;
-    }
     
     server->handovers_success++;
     return 0;
@@ -526,7 +476,7 @@ mock_core_error_t xnap_process_message(xnap_server_t* server,
             
         case XNAP_MSG_HANDOVER_NOTIFY: {
             const xnap_handover_notify_t* notify = &msg.payload.handover_notify;
-            printf("[XnAP] Handover Notify: UE ID=%u\n", notify->source_gnb_ue_xnap_id);
+            printf("[XnAP] Handover Notify: UE ID=%u\n", notify->ue_ids.source_gnb_ue_xnap_id);
             server->handovers_initiated++;
             break;
         }
@@ -534,7 +484,7 @@ mock_core_error_t xnap_process_message(xnap_server_t* server,
         case XNAP_MSG_HANDOVER_CANCEL: {
             const xnap_handover_cancel_t* cancel = &msg.payload.handover_cancel;
             printf("[XnAP] Handover Cancel: UE ID=%u, Reason=%u\n",
-                   cancel->source_gnb_ue_xnap_id, cancel->cause.cause_value);
+                   cancel->ue_ids.source_gnb_ue_xnap_id, cancel->cause.cause_value);
             break;
         }
             
@@ -602,11 +552,12 @@ mock_core_error_t xnap_initiate_handover(xnap_server_t* server,
     xnap_init_handover_request(&msg);
     
     xnap_handover_request_t* req = &msg.payload.handover_request;
-    req->source_gnb_ue_xnap_id = source_ue_id;
+    req->ue_ids.source_gnb_ue_xnap_id = source_ue_id;
     req->target_cell_id.nr_cell_id = target_cell_id;
-    req->num_drbs = 1;
-    req->drbs[0].drb_id = 1;
-    req->drbs[0].qos_flow_info.qfi = 1;
+    req->num_drbs_to_setup = 1;
+    req->drbs_to_setup[0].drb_id = 1;
+    req->drbs_to_setup[0].qos_flows[0].qfi = 1;
+    req->drbs_to_setup[0].num_qos_flows = 1;
     
     uint8_t* buffer = NULL;
     size_t length = 0;

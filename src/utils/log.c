@@ -33,8 +33,24 @@ static int uesim_strcasecmp(const char* s1, const char* s2) {
 #else
 #include <pthread.h>
 #include <unistd.h>
-#include <sys/syscall.h>
 #include <strings.h>
+
+/* gettid() availability check for older glibc */
+#if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
+    #if (__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 30)
+        /* glibc 2.30+ has gettid() */
+        #include <sys/syscall.h>
+        #define UESIM_GETTID() syscall(SYS_gettid)
+    #else
+        /* Older glibc - use syscall directly */
+        #include <sys/syscall.h>
+        #define UESIM_GETTID() syscall(SYS_gettid)
+    #endif
+#else
+    /* Non-glibc systems */
+    #include <sys/syscall.h>
+    #define UESIM_GETTID() syscall(SYS_gettid)
+#endif
 #endif
 
 /* Category names */
@@ -136,7 +152,7 @@ uint32_t log_get_tid(void) {
 #ifdef _WIN32
     return (uint32_t)GetCurrentThreadId();
 #else
-    return (uint32_t)syscall(SYS_gettid);
+    return (uint32_t)UESIM_GETTID();
 #endif
 }
 

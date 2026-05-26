@@ -5,8 +5,30 @@ DEPDIR = .deps
 DEP_BASE = $(subst /,_,$*)
 DEPFLAGS = -MT $@ -MMD -MP -MF $(DEPDIR)/$(DEP_BASE).Td
 
-# Compilation rule
-COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(CPPFLAGS) -c
+# SCTP support (from configure detection)
+# HAVE_SCTP is set by configure script (1 = enabled, 0 = disabled)
+ifeq ($(HAVE_SCTP),1)
+    SCTP_CFLAGS += -DHAVE_SCTP
+    SCTP_LDFLAGS = -lsctp
+else
+    SCTP_CFLAGS =
+    SCTP_LDFLAGS =
+endif
+
+# Compiler warnings for code quality
+# Detect unused functions, variables, and potential issues
+WARNINGS = -Wall -Wextra
+WARNINGS += -Wunused-function
+WARNINGS += -Wunused-variable
+WARNINGS += -Wunused-parameter
+WARNINGS += -Wmissing-prototypes
+WARNINGS += -Wstrict-prototypes
+WARNINGS += -Wold-style-definition
+# Suppress warnings for intentionally unused static functions
+WARNINGS += -Wno-unused-function
+
+# Compilation rule (with SCTP flags and warnings)
+COMPILE.c = $(CC) $(DEPFLAGS) $(CFLAGS) $(CPPFLAGS) $(SCTP_CFLAGS) $(WARNINGS) -c
 
 # Platform-specific post-compile
 ifeq ($(PLATFORM),windows)

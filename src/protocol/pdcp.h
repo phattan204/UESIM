@@ -65,7 +65,11 @@ typedef struct {
     uint8_t integrity_key[PDCP_MAX_INTEGRITY_KEY_LEN];
     pdcp_ciphering_alg_t ciphering_alg;
     pdcp_integrity_alg_t integrity_alg;
+#ifdef _WIN32
+    volatile LONG key_refresh_count;
+#else
     atomic_uint key_refresh_count;
+#endif
     pthread_mutex_t security_mutex;
 } pdcp_security_context_t;
 
@@ -75,8 +79,13 @@ typedef struct {
     pdcp_bearer_t bearer_type;
     pdcp_direction_t direction;
     uint16_t sn_length;           // Sequence Number length (5, 12, or 18 bits)
+#ifdef _WIN32
+    volatile LONG next_pdcp_sn;     // Next PDCP SN to be assigned
+    volatile LONG next_expected_sn; // Next expected SN for reception
+#else
     atomic_uint next_pdcp_sn;     // Next PDCP SN to be assigned
     atomic_uint next_expected_sn; // Next expected SN for reception
+#endif
     
     // Hyper Frame Number (HFN) tracking per 3GPP TS 38.323
     // COUNT = (PDCP SN + 2^SN_length × HFN) mod 2^32

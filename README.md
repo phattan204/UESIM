@@ -40,37 +40,114 @@ This application simulates 5G User Equipment behavior for testing and developmen
 
 ## Build Requirements
 
-### Linux (RHEL 8.5)
-- RHEL 8.5 or compatible Linux distribution
+### Linux (RHEL 8.5 / CentOS / Rocky Linux)
+
+**Required packages:**
+```bash
+# Install development tools and dependencies
+sudo yum install -y gcc make libsctp-devel
+
+# Optional: For advanced features
+sudo yum install -y pkgconfig
+```
+
+**Minimum requirements:**
+- RHEL 8.5 or compatible distribution (CentOS 8, Rocky Linux 8, AlmaLinux 8)
 - GCC 8.5 or higher
-- libsctp-devel
-- libconfig-devel
-- Development tools (make, gcc, etc.)
+- libsctp-devel (for SCTP support, falls back to TCP if not available)
+- Development tools (make, gcc)
+
+### Debian / Ubuntu
+
+```bash
+# Install development tools and dependencies
+sudo apt-get update
+sudo apt-get install -y build-essential libsctp-dev pkg-config
+```
+
+### macOS
+
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install dependencies via Homebrew
+brew install libsctp pkg-config
+```
 
 ### Windows
+
+**Required:**
 - MSYS2 or MinGW with GCC
 - Make utility
 
+```cmd
+# Using MSYS2
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+```
+
 ## Build Instructions
 
-### Linux (RHEL 8.5)
+### Quick Start (Linux)
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd uesim
 
+# Run configure (auto-detects system capabilities)
+./configure
+
 # Build the application
 make
 
-# Build with debug symbols
+# Install (optional)
+sudo make install
+```
+
+### Configuration Options
+
+The `configure` script auto-detects system capabilities. Available options:
+
+```bash
+./configure --help
+
+# Common options:
+./configure --prefix=/opt/uesim      # Custom installation path
+./configure --enable-debug           # Debug build
+./configure --disable-sctp           # Disable SCTP (use TCP fallback)
+./configure --cross-compile=aarch64  # Cross-compile for ARM64
+```
+
+### Manual Build (without configure)
+
+If you prefer not to use the configure script:
+
+```bash
+# RHEL 8.5 / CentOS
+make
+
+# With debug symbols
 make BUILD_TYPE=debug
 
-# Build with compression
+# With compression (requires UPX)
 make COMPRESS=yes
 
 # Clean build
 make clean
+```
+
+### Cross-Compilation
+
+For ARM64 (aarch64) targets:
+
+```bash
+# Install cross-compiler
+sudo yum install -y gcc-aarch64-linux-gnu
+
+# Configure and build
+./configure --cross-compile=aarch64
+make
 ```
 
 ### Windows

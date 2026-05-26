@@ -173,8 +173,13 @@ typedef struct {
         rlc_um_entity_t um;      // UM entity
         rlc_am_entity_t am;      // AM entity
     } entity;
+#ifdef _WIN32
+    volatile LONG sdu_counter;     // SDU counter
+    volatile LONG pdu_counter;     // PDU counter
+#else
     atomic_uint sdu_counter;     // SDU counter
     atomic_uint pdu_counter;     // PDU counter
+#endif
     bool active;                 // Entity active flag
     pthread_mutex_t entity_mutex; // Entity protection
     pthread_cond_t entity_cond;   // Entity signaling

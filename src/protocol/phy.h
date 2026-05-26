@@ -107,6 +107,25 @@ typedef struct {
     uint8_t symbol;             /* Symbol number */
 } phy_cell_config_t;
 
+/* L3 Filter Configuration (TS 38.331) */
+typedef struct {
+    uint8_t filter_coefficient; /* a, 0-9 (default 4) */
+    double filtered_rsrp;       /* L3 filtered RSRP */
+    double filtered_rsrq;       /* L3 filtered RSRQ */
+    double filtered_sinr;       /* L3 filtered SINR */
+    bool filter_configured;     /* L3 filter is configured */
+} phy_l3_filter_t;
+
+/* Radio Link Monitoring (TS 38.213) */
+typedef struct {
+    int16_t q_out_threshold;    /* Q_out threshold (dB) */
+    int16_t q_in_threshold;     /* Q_in threshold (dB) */
+    uint8_t n310;               /* N310 counter (out-of-sync) */
+    uint8_t n311;               /* N311 counter (in-sync) */
+    uint8_t t310;               /* T310 timer (not implemented) */
+    bool rlm_configured;        /* RLM is configured */
+} phy_rlm_t;
+
 /* PHY Statistics */
 typedef struct {
     uint64_t tx_bytes;          /* Transmitted bytes */
@@ -120,6 +139,14 @@ typedef struct {
     double avg_sinr;            /* Average SINR */
     double avg_rsrp;            /* Average RSRP */
     double avg_rsrq;            /* Average RSRQ */
+    
+    /* L3 Filter Statistics */
+    uint64_t l3_filter_updates; /* L3 filter update count */
+    
+    /* RLM Statistics */
+    uint64_t rlm_out_of_sync;   /* Out-of-sync indications */
+    uint64_t rlm_in_sync;       /* In-sync indications */
+    uint64_t rlf_detected;      /* Radio link failures */
 } phy_stats_t;
 
 /* PHY Context */
@@ -143,6 +170,12 @@ typedef struct {
     
     /* Power Control */
     phy_power_control_t power;
+    
+    /* L3 Filter */
+    phy_l3_filter_t l3_filter;
+    
+    /* Radio Link Monitoring */
+    phy_rlm_t rlm;
     
     /* Statistics */
     phy_stats_t stats;
@@ -226,6 +259,25 @@ int16_t phy_get_sinr(phy_context_t* ctx);
 /* Statistics */
 uesim_error_t phy_get_stats(phy_context_t* ctx, phy_stats_t* stats);
 uesim_error_t phy_reset_stats(phy_context_t* ctx);
+
+/* L3 Filtering (TS 38.331) */
+uesim_error_t phy_configure_l3_filter(phy_context_t* ctx, uint8_t filter_coefficient);
+uesim_error_t phy_apply_l3_filter(phy_context_t* ctx, int16_t* filtered_rsrp, 
+                                   int16_t* filtered_rsrq, int16_t* filtered_sinr);
+
+/* Radio Link Monitoring (TS 38.213) */
+uesim_error_t phy_configure_rlm(phy_context_t* ctx, int16_t q_out_threshold, 
+                                 int16_t q_in_threshold);
+uesim_error_t phy_evaluate_rlm(phy_context_t* ctx, bool* in_sync, bool* out_of_sync);
+uesim_error_t phy_get_rlm_counters(phy_context_t* ctx, uint8_t* n310, uint8_t* n311);
+
+/* PUCCH Power Control (TS 38.213) */
+uesim_error_t phy_calc_pucch_power(phy_context_t* ctx, uint8_t pucch_format,
+                                    uint16_t num_prbs, int16_t* power_dbm);
+
+/* SRS Power Control (TS 38.213) */
+uesim_error_t phy_calc_srs_power(phy_context_t* ctx, uint16_t num_prbs,
+                                  int16_t* power_dbm);
 
 /* Utility Functions */
 const char* phy_modulation_to_string(phy_modulation_t mod);

@@ -47,6 +47,10 @@ typedef enum {
     NAS_MSG_TYPE_NOTIFICATION_RESPONSE = 0x66,
     NAS_MSG_TYPE_UL_NAS_TRANSPORT = 0x67,
     NAS_MSG_TYPE_DL_NAS_TRANSPORT = 0x68,
+    NAS_MSG_TYPE_DEREGISTRATION_REQUEST = 0x45,
+    NAS_MSG_TYPE_DEREGISTRATION_ACCEPT = 0x46,
+    NAS_MSG_TYPE_DEREGISTRATION_COMPLETE = 0x47,
+    NAS_MSG_TYPE_DEREGISTRATION_REJECT = 0x48,
     
     // 5GSM (5G Session Management) Messages
     NAS_MSG_TYPE_PDU_SESSION_ESTABLISHMENT_REQUEST = 0xc1,
@@ -344,7 +348,11 @@ typedef struct nas_ue_context_t {
     bool t3412_running;            // T3412 timer running
     bool t3422_running;            // T3422 timer running
     bool t3450_running;            // T3450 timer running
+#ifdef _WIN32
+    volatile LONG message_counter;   // Message counter
+#else
     atomic_uint message_counter;   // Message counter
+#endif
     bool active;                   // UE context active
     pthread_mutex_t nas_mutex;     // NAS context protection
     pthread_cond_t nas_cond;       // NAS context signaling
@@ -410,6 +418,37 @@ uesim_error_t nas_send_pdu_session_establishment_accept(nas_ue_context_t* nas_ct
 uesim_error_t nas_handle_pdu_session_establishment_reject(nas_ue_context_t* nas_ctx, 
                                                          uint8_t pdu_session_id, uint8_t cause);
 
+// Enhanced PDU Session Management
+uesim_error_t nas_initiate_pdu_session_modification(nas_ue_context_t* nas_ctx, 
+                                                   uint8_t pdu_session_id);
+uesim_error_t nas_initiate_pdu_session_release(nas_ue_context_t* nas_ctx, 
+                                              uint8_t pdu_session_id);
+uesim_error_t nas_handle_pdu_session_modification_command(nas_ue_context_t* nas_ctx, 
+                                                         uint8_t pdu_session_id,
+                                                         const uint8_t* command_data, 
+                                                         size_t data_length);
+uesim_error_t nas_handle_pdu_session_release_command(nas_ue_context_t* nas_ctx, 
+                                                    uint8_t pdu_session_id,
+                                                    const uint8_t* command_data, 
+                                                    size_t data_length);
+
+// QoS Flow Management
+uesim_error_t nas_add_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                              const nas_qos_flow_t* qos_flow);
+uesim_error_t nas_remove_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                                 uint8_t qfi);
+uesim_error_t nas_modify_qos_flow(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id, 
+                                 const nas_qos_flow_t* qos_flow);
+
+// PDU Session Utility Functions
+uesim_error_t nas_get_pdu_session_info(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id,
+                                      nas_pdu_session_t* session_info);
+uesim_error_t nas_get_all_active_pdu_sessions(nas_ue_context_t* nas_ctx,
+                                             uint8_t* session_ids,
+                                             uint8_t* num_sessions);
+uesim_error_t nas_update_pdu_session_ambr(nas_ue_context_t* nas_ctx, uint8_t pdu_session_id,
+                                         uint16_t ul_ambr, uint16_t dl_ambr);
+
 // NAS Security Functions
 uesim_error_t nas_create_security_context(nas_ue_context_t* nas_ctx, 
                                          nas_ciphering_algorithm_t cipher_alg,
@@ -431,7 +470,8 @@ uesim_error_t nas_generate_authentication_vector(nas_ue_context_t* nas_ctx,
 uesim_error_t nas_validate_authentication_response(nas_ue_context_t* nas_ctx, 
                                                   const uint8_t* response, size_t response_length,
                                                   bool* valid);
-uesim_error_t nas_derive_nas_keys(nas_ue_context_t* nas_ctx, const uint8_t* kasme);
+uesim_error_t nas_derive_nas_keys(nas_ue_context_t* nas_ctx, const uint8_t* kamf);
+uesim_error_t nas_derive_nas_keys_from_kasme(nas_ue_context_t* nas_ctx, const uint8_t* kasme);
 
 // NAS Timer Functions
 uesim_error_t nas_start_timer(nas_ue_context_t* nas_ctx, uint16_t timer_id, uint32_t timeout_ms);

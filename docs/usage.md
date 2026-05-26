@@ -2,18 +2,65 @@
 
 ## Quick Start
 
-### Build
+### Configure and Build
+
+The `configure` script auto-detects system capabilities and generates optimal build settings.
 
 **Linux (RHEL 8.5+):**
 ```bash
+# Install dependencies
+sudo yum install -y gcc make libsctp-devel
+
+# Run configure (auto-detects SCTP, GCC version, etc.)
+./configure
+
+# Build
 make                    # Release build
 make BUILD_TYPE=debug   # Debug build
 ```
 
-**Windows (MinGW):**
+**Debian/Ubuntu:**
+```bash
+sudo apt-get install -y build-essential libsctp-dev pkg-config
+./configure
+make
+```
+
+**macOS:**
+```bash
+xcode-select --install
+brew install libsctp pkg-config
+./configure
+make
+```
+
+**Windows (MinGW/MSYS2):**
 ```cmd
 make                    # Release build (produces uesim.exe)
 make BUILD_TYPE=debug   # Debug build (produces uesim-debug.exe)
+```
+
+### Configure Script Options
+
+```bash
+./configure --help
+
+# Common options:
+./configure --prefix=/opt/uesim      # Custom installation path
+./configure --enable-debug           # Debug build
+./configure --disable-sctp           # Disable SCTP (use TCP fallback)
+./configure --cross-compile=aarch64  # Cross-compile for ARM64
+./configure --with-sctp=/usr/local   # Specify SCTP library path
+```
+
+### Manual Build (without configure)
+
+If configure script is not available or you prefer manual configuration:
+
+```bash
+make                    # Uses default settings
+make BUILD_TYPE=debug   # Debug build
+make HAVE_SCTP=0        # Disable SCTP support
 ```
 
 ### Run

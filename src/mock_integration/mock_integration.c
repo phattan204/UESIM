@@ -5,12 +5,14 @@
 
 #include "mock_integration.h"
 #include "../protocol/ngap_messages.h"
+#include "../core/memory.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
 #include <windows.h>
+#include <ws2tcpip.h>
 #else
 #include <unistd.h>
 #include <pthread.h>
@@ -67,7 +69,7 @@ const char* mock_integration_error_to_string(mock_integration_error_t error) {
 /* ============== Context Management ============== */
 
 mock_integration_ctx_t* mock_integration_create(const mock_integration_config_t* config) {
-    mock_integration_ctx_t* ctx = (mock_integration_ctx_t*)calloc(1, sizeof(mock_integration_ctx_t));
+    mock_integration_ctx_t* ctx = (mock_integration_ctx_t*)uesim_calloc(1, sizeof(mock_integration_ctx_t));
     if (ctx == NULL) {
         return NULL;
     }
@@ -104,7 +106,7 @@ void mock_integration_destroy(mock_integration_ctx_t* ctx) {
         /* Note: gNB server may be managed externally */
     }
     
-    free(ctx);
+    uesim_free(ctx);
 }
 
 /* ============== AMF Connection ============== */
@@ -183,11 +185,13 @@ mock_integration_error_t mock_integration_ng_setup(mock_integration_ctx_t* ctx) 
     msg.procedure_code = NGAP_PROC_NG_SETUP;
     
     ngap_ng_setup_request_t* req = &msg.payload.ng_setup_request;
-    req->gnb_id = ctx->config.gnb_id;
-    strncpy(req->gnb_name, ctx->config.gnb_name, sizeof(req->gnb_name) - 1);
-    req->tac = ctx->config.tac;
-    req->num_supported_ta = 1;
-    req->supported_ta_list[0].tac = ctx->config.tac;
+    req->global_gnb_id.gnb_id = ctx->config.gnb_id;
+    strncpy(req->global_gnb_id.gnb_name, ctx->config.gnb_name, sizeof(req->global_gnb_id.gnb_name) - 1);
+    req->num_tai = 1;
+    req->tai_list[0].plmn_id[0] = 0x00;
+    req->tai_list[0].plmn_id[1] = 0x01;
+    req->tai_list[0].plmn_id[2] = 0xF1;
+    req->tai_list[0].tac = ctx->config.tac;
     
     /* Encode message */
     uint8_t* buffer = NULL;

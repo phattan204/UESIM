@@ -12,7 +12,11 @@
 #include <time.h>
 
 // Global NAS context
+#ifdef _WIN32
+static volatile LONG g_nas_ue_counter = 0;
+#else
 static atomic_uint g_nas_ue_counter = 0;
+#endif
 
 uesim_error_t nas_init(ue_context_t* ue_ctx) {
     if (ue_ctx == NULL) {
@@ -68,12 +72,17 @@ uesim_error_t nas_create_ue_context(ue_context_t* ue_ctx, nas_ue_context_t** nas
     }
     
     // Initialize context
+#ifdef _WIN32
+    nas_ue_ctx->ue_id = InterlockedExchangeAdd(&g_nas_ue_counter, 1);
+    nas_ue_ctx->message_counter = 0;
+#else
     nas_ue_ctx->ue_id = atomic_fetch_add(&g_nas_ue_counter, 1);
     nas_ue_ctx->mm_state = NAS_5GMM_NULL;
     nas_ue_ctx->active = false;
     
     // Initialize atomic counters
     atomic_init(&nas_ue_ctx->message_counter, 0);
+#endif
     
     // Initialize mutex and condition variable
     if (pthread_mutex_init(&nas_ue_ctx->nas_mutex, NULL) != 0) {

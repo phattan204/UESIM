@@ -16,6 +16,12 @@
 
 /* Platform-specific includes */
 #ifdef _WIN32
+    #ifndef _WIN32_WINNT
+        #define _WIN32_WINNT 0x0A00
+    #endif
+    #ifndef WINVER
+        #define WINVER 0x0A00
+    #endif
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
@@ -25,10 +31,22 @@
     typedef HANDLE pthread_t;
     typedef HANDLE pthread_mutex_t;
     typedef HANDLE pthread_cond_t;
-    typedef LONG atomic_int;
-    typedef LONG atomic_uint;
-    typedef LONG atomic_bool;
-    typedef LONG atomic_size_t;
+    
+    /* Windows atomic typedefs (prefixed to avoid conflicts) */
+    typedef LONG uesim_atomic_int;
+    typedef LONG uesim_atomic_uint;
+    typedef LONG uesim_atomic_bool;
+    typedef LONG uesim_atomic_size_t;
+    
+    /* Suppress unused static function warnings for compatibility wrappers */
+    #ifdef _MSC_VER
+    #pragma warning(push)
+    #pragma warning(disable: 4505) /* unreferenced local function */
+    #endif
+    #ifdef __GNUC__
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wunused-function"
+    #endif
     
     /* pthread mutex wrappers */
     static int pthread_mutex_init(pthread_mutex_t* mutex, void* attr) {
@@ -85,6 +103,11 @@
     static int uesim_sock_close(int sock) { return closesocket(sock); }
     static void uesim_sleep(unsigned int sec) { Sleep(sec * 1000); }
     
+    /* Cross-platform time function */
+    static inline uint32_t uesim_get_time_ms(void) {
+        return (uint32_t)GetTickCount();
+    }
+    
     /* Atomic operations for Windows */
     static int atomic_fetch_add(volatile LONG* obj, int arg) {
         return InterlockedExchangeAdd(obj, arg);
@@ -102,6 +125,21 @@
         return InterlockedExchangeAdd(obj, -arg);
     }
     
+    /* Byte order conversion for Windows */
+    #define htobe64(x) _byteswap_uint64(x)
+    #define be64toh(x) _byteswap_uint64(x)
+    #define htobe32(x) _byteswap_ulong(x)
+    #define be32toh(x) _byteswap_ulong(x)
+    #define htobe16(x) _byteswap_ushort(x)
+    #define be16toh(x) _byteswap_ushort(x)
+    
+    #ifdef _MSC_VER
+    #pragma warning(pop)
+    #endif
+    #ifdef __GNUC__
+    #pragma GCC diagnostic pop
+    #endif
+    
 #else
     #include <unistd.h>
     #include <pthread.h>
@@ -115,6 +153,14 @@
     /* Unix wrappers matching Windows API */
     static inline int uesim_sock_close(int sock) { return close(sock); }
     static inline void uesim_sleep(unsigned int sec) { sleep(sec); }
+    
+    /* Cross-platform time function */
+    #include <sys/time.h>
+    static inline uint32_t uesim_get_time_ms(void) {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    }
 #endif
 
 /* Memory layout constants */
@@ -390,6 +436,10 @@ gnb_context_t* uesim_get_serving_gnb(ue_context_t* ue_ctx);
 uint8_t uesim_get_candidate_gnb_count(ue_context_t* ue_ctx);
 const char* uesim_gnb_type_str(gnb_type_t type);
 const char* uesim_gnb_state_str(gnb_state_t state);
+
+/* gNB Connection Health and Recovery */
+uesim_error_t uesim_reconnect_gnb(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx);
+bool uesim_is_gnb_connected(ue_context_t* ue_ctx, gnb_context_t* gnb_ctx);
 
 /* Memory management functions */
 void* uesim_malloc(size_t size);

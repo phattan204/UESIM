@@ -369,6 +369,245 @@ static size_t pfcp_encode_create_far(uint8_t* buf, const pfcp_far_t* far_data) {
     return offset;
 }
 
+/* ============== QER Encoding Functions ============== */
+
+static size_t pfcp_encode_create_qer(uint8_t* buf, const pfcp_qer_t* qer) {
+    if (!buf || !qer) return 0;
+    
+    size_t offset = 0;
+    size_t content_len = 4 + 4;  /* QER ID + Gate Status (2x1 byte) */
+    
+    /* Calculate content length */
+    content_len += 4 + 8 + 8;  /* MBR (UL + DL) */
+    content_len += 4 + 8 + 8;  /* GBR (UL + DL) */
+    if (qer->qfi_present) content_len += 4 + 1;
+    if (qer->qer_correlation_id_present) content_len += 4 + 4;
+    
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_CREATE_QER, content_len);
+    
+    /* QER ID */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_QER_ID, 4);
+    buf[offset++] = (qer->qer_id >> 24) & 0xFF;
+    buf[offset++] = (qer->qer_id >> 16) & 0xFF;
+    buf[offset++] = (qer->qer_id >> 8) & 0xFF;
+    buf[offset++] = qer->qer_id & 0xFF;
+    
+    /* Gate Status (UL + DL in single byte) */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_GATE_STATUS, 1);
+    buf[offset++] = (qer->ul_gate_status << 4) | (qer->dl_gate_status & 0x0F);
+    
+    /* MBR - Uplink */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_MBR, 8);
+    for (int i = 7; i >= 0; i--) {
+        buf[offset++] = (qer->ul_mbr >> (i * 8)) & 0xFF;
+    }
+    
+    /* MBR - Downlink */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_MBR, 8);
+    for (int i = 7; i >= 0; i--) {
+        buf[offset++] = (qer->dl_mbr >> (i * 8)) & 0xFF;
+    }
+    
+    /* GBR - Uplink */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_GBR, 8);
+    for (int i = 7; i >= 0; i--) {
+        buf[offset++] = (qer->ul_gbr >> (i * 8)) & 0xFF;
+    }
+    
+    /* GBR - Downlink */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_GBR, 8);
+    for (int i = 7; i >= 0; i--) {
+        buf[offset++] = (qer->dl_gbr >> (i * 8)) & 0xFF;
+    }
+    
+    /* QFI (QoS Flow Identifier) */
+    if (qer->qfi_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_QER_CORRELATION_ID, 1);
+        buf[offset++] = qer->qfi;
+    }
+    
+    /* QER Correlation ID */
+    if (qer->qer_correlation_id_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_QER_CORRELATION_ID, 4);
+        buf[offset++] = (qer->qer_correlation_id >> 24) & 0xFF;
+        buf[offset++] = (qer->qer_correlation_id >> 16) & 0xFF;
+        buf[offset++] = (qer->qer_correlation_id >> 8) & 0xFF;
+        buf[offset++] = qer->qer_correlation_id & 0xFF;
+    }
+    
+    return offset;
+}
+
+static size_t pfcp_encode_update_qer(uint8_t* buf, const pfcp_qer_t* qer) {
+    /* Update QER has same structure as Create QER */
+    return pfcp_encode_create_qer(buf, qer);
+}
+
+static size_t pfcp_encode_remove_qer(uint8_t* buf, uint32_t qer_id) {
+    if (!buf) return 0;
+    
+    size_t offset = 0;
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_REMOVE_QER, 4);
+    buf[offset++] = (qer_id >> 24) & 0xFF;
+    buf[offset++] = (qer_id >> 16) & 0xFF;
+    buf[offset++] = (qer_id >> 8) & 0xFF;
+    buf[offset++] = qer_id & 0xFF;
+    
+    return offset;
+}
+
+/* ============== URR Encoding Functions ============== */
+
+static size_t pfcp_encode_create_urr(uint8_t* buf, const pfcp_urr_t* urr) {
+    if (!buf || !urr) return 0;
+    
+    size_t offset = 0;
+    size_t content_len = 4 + 4;  /* URR ID + Measurement Method */
+    
+    /* Calculate content length */
+    content_len += 4 + 1;  /* Reporting Triggers */
+    if (urr->volume_threshold_present) content_len += 4 + 24;  /* Total + UL + DL */
+    if (urr->time_threshold_present) content_len += 4 + 4;
+    if (urr->volume_quota_present) content_len += 4 + 8;
+    if (urr->time_quota_present) content_len += 4 + 4;
+    if (urr->quota_validity_time_present) content_len += 4 + 4;
+    
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_CREATE_URR, content_len);
+    
+    /* URR ID */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_URR_ID, 4);
+    buf[offset++] = (urr->urr_id >> 24) & 0xFF;
+    buf[offset++] = (urr->urr_id >> 16) & 0xFF;
+    buf[offset++] = (urr->urr_id >> 8) & 0xFF;
+    buf[offset++] = urr->urr_id & 0xFF;
+    
+    /* Measurement Method */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_MEASUREMENT_METHOD, 1);
+    buf[offset++] = urr->measurement_method;
+    
+    /* Reporting Triggers */
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_REPORTING_TRIGGERS, 1);
+    buf[offset++] = urr->reporting_triggers;
+    
+    /* Volume Threshold */
+    if (urr->volume_threshold_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_VOLUME_THRESHOLD, 24);
+        /* Total Volume */
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (urr->total_volume_threshold >> (i * 8)) & 0xFF;
+        }
+        /* Uplink Volume */
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (urr->uplink_volume_threshold >> (i * 8)) & 0xFF;
+        }
+        /* Downlink Volume */
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (urr->downlink_volume_threshold >> (i * 8)) & 0xFF;
+        }
+    }
+    
+    /* Time Threshold */
+    if (urr->time_threshold_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_TIME_THRESHOLD, 4);
+        buf[offset++] = (urr->time_threshold >> 24) & 0xFF;
+        buf[offset++] = (urr->time_threshold >> 16) & 0xFF;
+        buf[offset++] = (urr->time_threshold >> 8) & 0xFF;
+        buf[offset++] = urr->time_threshold & 0xFF;
+    }
+    
+    /* Volume Quota */
+    if (urr->volume_quota_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_VOLUME_QUOTA, 8);
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (urr->total_volume_quota >> (i * 8)) & 0xFF;
+        }
+    }
+    
+    /* Time Quota */
+    if (urr->time_quota_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_TIME_QUOTA, 4);
+        buf[offset++] = (urr->time_quota >> 24) & 0xFF;
+        buf[offset++] = (urr->time_quota >> 16) & 0xFF;
+        buf[offset++] = (urr->time_quota >> 8) & 0xFF;
+        buf[offset++] = urr->time_quota & 0xFF;
+    }
+    
+    /* Quota Validity Time */
+    if (urr->quota_validity_time_present) {
+        offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_QUOTA_VALIDITY_TIME, 4);
+        buf[offset++] = (urr->quota_validity_time >> 24) & 0xFF;
+        buf[offset++] = (urr->quota_validity_time >> 16) & 0xFF;
+        buf[offset++] = (urr->quota_validity_time >> 8) & 0xFF;
+        buf[offset++] = urr->quota_validity_time & 0xFF;
+    }
+    
+    return offset;
+}
+
+static size_t pfcp_encode_update_urr(uint8_t* buf, const pfcp_urr_t* urr) {
+    /* Update URR has same structure as Create URR */
+    return pfcp_encode_create_urr(buf, urr);
+}
+
+static size_t pfcp_encode_remove_urr(uint8_t* buf, uint32_t urr_id) {
+    if (!buf) return 0;
+    
+    size_t offset = 0;
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_REMOVE_URR, 4);
+    buf[offset++] = (urr_id >> 24) & 0xFF;
+    buf[offset++] = (urr_id >> 16) & 0xFF;
+    buf[offset++] = (urr_id >> 8) & 0xFF;
+    buf[offset++] = urr_id & 0xFF;
+    
+    return offset;
+}
+
+static size_t pfcp_encode_volume_measurement(uint8_t* buf, const pfcp_volume_measurement_t* vol) {
+    if (!buf || !vol) return 0;
+    
+    size_t offset = 0;
+    size_t content_len = 0;
+    
+    if (vol->total_present) content_len += 8;
+    if (vol->uplink_present) content_len += 8;
+    if (vol->downlink_present) content_len += 8;
+    
+    if (content_len == 0) return 0;
+    
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_VOLUME_MEASUREMENT, content_len);
+    
+    if (vol->total_present) {
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (vol->total_volume >> (i * 8)) & 0xFF;
+        }
+    }
+    if (vol->uplink_present) {
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (vol->uplink_volume >> (i * 8)) & 0xFF;
+        }
+    }
+    if (vol->downlink_present) {
+        for (int i = 7; i >= 0; i--) {
+            buf[offset++] = (vol->downlink_volume >> (i * 8)) & 0xFF;
+        }
+    }
+    
+    return offset;
+}
+
+static size_t pfcp_encode_duration_measurement(uint8_t* buf, uint32_t duration) {
+    if (!buf) return 0;
+    
+    size_t offset = 0;
+    offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_DURATION_MEASUREMENT, 4);
+    buf[offset++] = (duration >> 24) & 0xFF;
+    buf[offset++] = (duration >> 16) & 0xFF;
+    buf[offset++] = (duration >> 8) & 0xFF;
+    buf[offset++] = duration & 0xFF;
+    
+    return offset;
+}
+
 /* ============== Message Encoding ============== */
 
 int pfcp_encode_message(const pfcp_message_t* msg, uint8_t** buffer, size_t* length) {
@@ -448,11 +687,35 @@ int pfcp_encode_message(const pfcp_message_t* msg, uint8_t** buffer, size_t* len
                 offset += pfcp_encode_create_far(buf + offset, &req->create_far[i]);
             }
             
+            /* Create QER */
+            for (int i = 0; i < req->num_create_qer && i < PFCP_MAX_QER_PER_SESSION; i++) {
+                offset += pfcp_encode_create_qer(buf + offset, &req->create_qer[i]);
+            }
+            
+            /* Create URR */
+            for (int i = 0; i < req->num_create_urr && i < PFCP_MAX_URR_PER_SESSION; i++) {
+                offset += pfcp_encode_create_urr(buf + offset, &req->create_urr[i]);
+            }
+            
             /* APN/DNN */
             if (req->apn_dnn_len > 0) {
                 offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_APN_DNN, req->apn_dnn_len);
                 memcpy(buf + offset, req->apn_dnn, req->apn_dnn_len);
                 offset += req->apn_dnn_len;
+            }
+            
+            /* S-NSSAI (Network Slicing) */
+            if (req->snssai_present) {
+                /* Encode S-NSSAI: SST (1 byte) + SD (3 bytes if present) */
+                uint8_t s_nssai_len = 1;
+                if (req->sd != 0) s_nssai_len = 4;
+                offset += pfcp_encode_ie_header(buf + offset, PFCP_IE_SDF_FILTER, s_nssai_len);
+                buf[offset++] = req->sst;
+                if (s_nssai_len == 4) {
+                    buf[offset++] = (req->sd >> 16) & 0xFF;
+                    buf[offset++] = (req->sd >> 8) & 0xFF;
+                    buf[offset++] = req->sd & 0xFF;
+                }
             }
             break;
         }
